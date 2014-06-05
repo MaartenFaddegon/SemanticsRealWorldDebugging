@@ -163,10 +163,27 @@ isWrong :: Node -> Bool
 isWrong (_,_,Wrong) = True
 isWrong _           = False
 
+
+--------------------------------------------------------------------------------
+-- List of faulty expressions
+
+faultyExprs :: Expr -> [Label]
+faultyExprs Const             = []
+faultyExprs (Lambda _ e)      = faultyExprs e
+faultyExprs (Apply e _)       = faultyExprs e
+faultyExprs (Var _)           = []
+faultyExprs (Let (_,e1) e2)   = faultyExprs e1 ++ faultyExprs e2
+faultyExprs (CorrectExpr _ e) = faultyExprs e
+faultyExprs (FaultyExpr l e)  = l : faultyExprs e
+
 --------------------------------------------------------------------------------
 -- Tests.
 
+findFaulty = faultyNodes . mkGraph .evalE 
+
+propExact :: Expr -> Bool
+propExact e = findFaulty e == faultyExprs e
 
 expr1 = CorrectExpr "y" (FaultyExpr "x" Const)
 
-test1 = faultyNodes . mkGraph .evalE $ expr1
+test1 = propExact expr1
