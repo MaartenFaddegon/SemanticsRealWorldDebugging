@@ -14,7 +14,7 @@ push l s
   | otherwise  = l : s
 
 call :: Stack -> Stack -> Stack
-call sApp sLam = foldr push sPre sLam'
+call sApp sLam = sApp ++ sLam'
   where (sPre,sApp',sLam') = commonPrefix sApp sLam
 
 commonPrefix :: Stack -> Stack -> (Stack, Stack, Stack)
@@ -31,25 +31,9 @@ span2 f = s f []
           | otherwise = (pre,xs,ys)
 
 --------------------------------------------------------------------------------
--- Tracing.
---
--- A recorded value is Right or Wrong.
--- An expression is Correct or Faulty.
-
-type Trace = [(Label,Stack,Correctness,Faulty)]
-
-data Correctness = Right | Wrong deriving Show
-
-data Faulty = Faulty | Correct deriving Show
-
-trace :: (Label,Stack,Correctness,Faulty) -> Trace -> Trace
-trace = (:)
-
---------------------------------------------------------------------------------
 -- Expressions.
 
 type Name = String
-
 
 data Expr = Const
           | Lambda Name Expr
@@ -60,8 +44,6 @@ data Expr = Const
           | FaultyExpr Label Expr
           | Observed Label Stack Expr
           deriving Show
-
-
 
 --------------------------------------------------------------------------------
 -- The reduction rules.
@@ -74,7 +56,7 @@ eval stk trc (Lambda x e) = return (stk,trc,Lambda x e)
 
 eval stk trc (CorrectExpr l e) = eval (push l stk) trc (Observed l stk e)
 
-eval stk trc (FaultyExpr l e)  = eval (push l stk) (trace (l,stk,Wrong,Faulty) trc) e
+eval stk trc (FaultyExpr l e)  = eval (push l stk) (trace (l,stk,Wrong) trc) e
 
 eval stk trc (Let (x,e1) e2) = do
   insertHeap x (stk,e2)
@@ -96,8 +78,8 @@ eval stk trc (Var x) = do
       eval stk trcv (Var x) -- Notice how we retain the trace but swap back the stack
 
 eval stk trc (Observed l s e) = do
-  case e of Const              -> return (stk,trace (l,s,Right,Correct) trc, Const)
-            (FaultyExpr l' e') -> eval stk (trace (l,s,Wrong,Correct) trc) (FaultyExpr l' e')
+  case e of Const              -> return (stk,trace (l,s,Right) trc, Const)
+            (FaultyExpr l' e') -> eval stk (trace (l,s,Wrong) trc) (FaultyExpr l' e')
             _ -> do
               (stk',trc',e') <- eval stk trc e
               return (stk',trc',(Observed l s e'))
@@ -111,8 +93,11 @@ data EState = EState { theHeap      :: [(Name,(Stack,Expr))]
 
 type E a = State EState a
 
-evalE :: Expr -> (Stack,Trace,Expr)
-evalE e = evalState (eval [] [] e) (EState [])
+evalE' :: Expr -> (Stack,Trace,Expr)
+evalE' e = evalState (eval [] [] e) (EState [])
+
+evalE :: Expr -> Trace
+evalE e = let (_,t,_) = evalE' e in t
 
 --------------------------------------------------------------------------------
 -- Manipulating the heap
@@ -137,10 +122,51 @@ subst :: Name -> Name -> Expr -> Expr
 subst = undefined
 
 --------------------------------------------------------------------------------
+-- Tracing.
+--
+-- A recorded value is Right or Wrong.
+
+type Record = (Label,Stack,Correctness)
+
+type Trace = [Record]
+
+data Correctness = Right | Wrong deriving (Show,Eq)
+
+trace :: Record -> Trace -> Trace
+trace = (:)
+
+--------------------------------------------------------------------------------
+-- Algorithmic debugging from a trace.
+
+type Node  = Record
+data Arc   = Arc Node Node deriving Show
+type Graph = ([Node],[Arc])
+
+mkGraph :: Trace -> Graph
+mkGraph trace = (trace,foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
+
+arcsFrom :: Record -> Trace -> [Arc]
+arcsFrom src = (map (Arc src)) . (filter (src `couldDependOn`))
+
+couldDependOn :: Record -> Record -> Bool
+couldDependOn (l,s,_) (_,t,_) = push l s == t
+
+children :: Node -> Graph -> [Node]
+children n = (map (\(Arc _ tgt) -> tgt)) . (filter (\(Arc src _) -> src == n)) . snd
+
+faultyNodes :: Graph -> [Label]
+faultyNodes (ns,as) = (map (\(l,_,_) -> l)) . (filter faulty) $ ns
+        where faulty (_,_,Right) = False
+              faulty n = [] == filter isWrong (children n (ns,as))
+
+isWrong :: Node -> Bool
+isWrong (_,_,Wrong) = True
+isWrong _           = False
+
+--------------------------------------------------------------------------------
 -- Tests.
 
-test1 = evalE $ Const
 
-test2 = evalE $ FaultyExpr "x" Const
+expr1 = CorrectExpr "y" (FaultyExpr "x" Const)
 
-test3 = evalE $ CorrectExpr "y" (FaultyExpr "x" Const)
+test1 = faultyNodes . mkGraph .evalE $ expr1
