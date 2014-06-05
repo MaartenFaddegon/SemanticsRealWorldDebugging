@@ -1,6 +1,13 @@
-module Semantics (Stack,push,call) where
+module Semantics
+( Expr(..)
+, faultyNodes
+, faultyExprs
+) 
+where
+-- import Control.Monad (liftM2)
 import Control.Monad.State
 import Prelude hiding (Right)
+import Test.QuickCheck
 
 --------------------------------------------------------------------------------
 -- Stack handling: push and call
@@ -154,8 +161,8 @@ couldDependOn (l,s,_) (_,t,_) = push l s == t
 children :: Node -> Graph -> [Node]
 children n = (map (\(Arc _ tgt) -> tgt)) . (filter (\(Arc src _) -> src == n)) . snd
 
-faultyNodes :: Graph -> [Label]
-faultyNodes (ns,as) = (map (\(l,_,_) -> l)) . (filter faulty) $ ns
+faultyNodes' :: Graph -> [Label]
+faultyNodes' (ns,as) = (map (\(l,_,_) -> l)) . (filter faulty) $ ns
         where faulty (_,_,Right) = False
               faulty n = [] == filter isWrong (children n (ns,as))
 
@@ -163,9 +170,10 @@ isWrong :: Node -> Bool
 isWrong (_,_,Wrong) = True
 isWrong _           = False
 
+faultyNodes = faultyNodes' . mkGraph .evalE 
 
 --------------------------------------------------------------------------------
--- List of faulty expressions
+-- List of faulty expressions.
 
 faultyExprs :: Expr -> [Label]
 faultyExprs Const             = []
@@ -179,11 +187,27 @@ faultyExprs (FaultyExpr l e)  = l : faultyExprs e
 --------------------------------------------------------------------------------
 -- Tests.
 
-findFaulty = faultyNodes . mkGraph .evalE 
+gen_expr :: Int -> Gen Expr
+gen_expr 0 = elements [Const]
+gen_expr n = oneof [ elements [Const]
+                   , liftM2 Lambda arbitrary gen_expr'
+                   , liftM2 Apply gen_expr' arbitrary
+                   , liftM Var arbitrary
+                   , liftM3 mkLet arbitrary gen_expr' gen_expr'
+                   , liftM2 CorrectExpr arbitrary gen_expr'
+                   , liftM2 FaultyExpr arbitrary gen_expr'
+                   ]
+  where gen_expr' = gen_expr (n `div` 2)
+        mkLet n e1 e2 = Let (n,e1) e2
+
+instance Arbitrary Expr where
+  arbitrary = sized gen_expr
 
 propExact :: Expr -> Bool
-propExact e = findFaulty e == faultyExprs e
+propExact e = faultyNodes e == faultyExprs e
 
 expr1 = CorrectExpr "y" (FaultyExpr "x" Const)
 
 test1 = propExact expr1
+
+
