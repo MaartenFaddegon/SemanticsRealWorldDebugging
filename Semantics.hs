@@ -69,9 +69,12 @@ eval stk trc (Let (x,e1) e2) = do
   insertHeap x (stk,e2)
   eval stk trc e2
 
+-- special case for weird generated testcases
 eval stk trc (Apply f x) = do
-  (stk_lam, trc_lam, Lambda y e) <- eval stk trc f
-  eval stk_lam trc_lam (subst y x e)
+  (stk_lam, trc_lam, e) <- eval stk trc f
+  case e of 
+    Lambda y e -> eval stk_lam trc_lam (subst y x e)
+    _          -> return (stk_lam,trc_lam,Const)
 
 eval stk trc (Var x) = do
   r <- lookupHeap x
@@ -126,7 +129,16 @@ lookupHeap x = do
 -- Substituting variable names.
 
 subst :: Name -> Name -> Expr -> Expr
-subst = undefined
+subst n m Const             = Const
+subst n m (Lambda n' e)     = Lambda (sub n m n') (subst n m e)
+subst n m (Apply e n')      = Apply (subst n m e) (sub n m n')
+subst n m (Var n')          = Var (sub n m n')
+subst n m (Let (n',e1) e2)  = Let ((sub n m n'),(subst n m e1)) (subst n m e2)
+subst n m (CorrectExpr l e) = CorrectExpr l (subst n m e)
+subst n m (FaultyExpr l e)  = FaultyExpr l (subst n m e)
+
+sub :: Name -> Name -> Name -> Name
+sub n m n' = if n == n' then n' else m
 
 --------------------------------------------------------------------------------
 -- Tracing.
@@ -170,7 +182,7 @@ isWrong :: Node -> Bool
 isWrong (_,_,Wrong) = True
 isWrong _           = False
 
-faultyNodes = faultyNodes' . mkGraph .evalE 
+faultyNodes = faultyNodes' . mkGraph . evalE 
 
 --------------------------------------------------------------------------------
 -- List of faulty expressions.
@@ -183,7 +195,6 @@ faultyExprs (Var _)           = []
 faultyExprs (Let (_,e1) e2)   = faultyExprs e1 ++ faultyExprs e2
 faultyExprs (CorrectExpr _ e) = faultyExprs e
 faultyExprs (FaultyExpr l e)  = l : faultyExprs e
-
 
 --------------------------------------------------------------------------------
 --
@@ -226,3 +237,7 @@ expr1 = CorrectExpr "y" (FaultyExpr "x" Const)
 test1 = propExact expr1
 
 expr2 = Let ("e",FaultyExpr "K" Const) (Let ("d",Const) Const)
+
+expr3 = Let ("n",Lambda "n" Const) (Var "n")
+
+expr4 = Let ("n", Const) (Var "n")
