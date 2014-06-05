@@ -1,5 +1,6 @@
 module Semantics (Stack,push,call) where
 import Control.Monad.State
+import Prelude hiding (Right)
 
 --------------------------------------------------------------------------------
 -- Stack handling: push and call
@@ -31,10 +32,17 @@ span2 f = s f []
 
 --------------------------------------------------------------------------------
 -- Tracing.
+--
+-- A recorded value is Right or Wrong.
+-- An expression is Correct or Faulty.
 
-type Trace = [(Label,Stack,Value)]
+type Trace = [(Label,Stack,Correctness,Faulty)]
 
-trace :: (Label,Stack,Value) -> Trace -> Trace
+data Correctness = Right | Wrong deriving Show
+
+data Faulty = Faulty | Correct deriving Show
+
+trace :: (Label,Stack,Correctness,Faulty) -> Trace -> Trace
 trace = (:)
 
 --------------------------------------------------------------------------------
@@ -42,7 +50,6 @@ trace = (:)
 
 type Name = String
 
-data Value = Correct | Wrong deriving Show
 
 data Expr = Const
           | Lambda Name Expr
@@ -51,39 +58,49 @@ data Expr = Const
           | Let (Name,Expr) Expr
           | CorrectExpr Label Expr
           | FaultyExpr Label Expr
+          | Observed Label Stack Expr
           deriving Show
+
+
 
 --------------------------------------------------------------------------------
 -- The reduction rules.
 
-eval :: Stack -> Expr -> E (Stack, Expr)
+eval :: Stack -> Trace -> Expr -> E (Stack,Trace,Expr)
 
-eval stk Const = return (stk, Const)
+eval stk trc Const = return (stk,trc,Const)
 
-eval stk (Lambda x e) = return (stk, Lambda x e)
+eval stk trc (Lambda x e) = return (stk,trc,Lambda x e)
 
-eval stk (CorrectExpr l e) = eval (push l stk) e
+eval stk trc (CorrectExpr l e) = eval (push l stk) trc (Observed l stk e)
 
-eval stk (FaultyExpr l e)  = eval (push l stk) e
+eval stk trc (FaultyExpr l e)  = eval (push l stk) (trace (l,stk,Wrong,Faulty) trc) e
 
-eval stk (Let (x,e1) e2) = do
+eval stk trc (Let (x,e1) e2) = do
   insertHeap x (stk,e2)
-  eval stk e2
+  eval stk trc e2
 
-eval stk (Apply f x) = do
-  (stk_lam, Lambda y e) <- eval stk f
-  eval stk_lam (subst y x e)
+eval stk trc (Apply f x) = do
+  (stk_lam, trc_lam, Lambda y e) <- eval stk trc f
+  eval stk_lam trc_lam (subst y x e)
 
-eval stk (Var x) = do
+eval stk trc (Var x) = do
   r <- lookupHeap x
   case r of
-    (stk',Const)  -> return (stk',Const)
-    (stk',Lambda y e) -> return (call stk stk', Lambda y e)
+    (stk',Const)  -> return (stk',trc,Const)
+    (stk',Lambda y e) -> return (call stk stk',trc,Lambda y e)
     (stk',e) -> do
       deleteHeap x
-      (stkv, v) <- eval stk' e
+      (stkv,trcv,v) <- eval stk' trc e
       insertHeap x (stkv,e)
-      eval stk (Var x)
+      eval stk trcv (Var x) -- Notice how we retain the trace but swap back the stack
+
+eval stk trc (Observed l s e) = do
+  case e of Const              -> return (stk,trace (l,s,Right,Correct) trc, Const)
+            (FaultyExpr l' e') -> eval stk (trace (l,s,Wrong,Correct) trc) (FaultyExpr l' e')
+            _ -> do
+              (stk',trc',e') <- eval stk trc e
+              return (stk',trc',(Observed l s e'))
 
 --------------------------------------------------------------------------------
 -- The state.
@@ -94,8 +111,8 @@ data EState = EState { theHeap      :: [(Name,(Stack,Expr))]
 
 type E a = State EState a
 
-evalE :: Expr -> (Stack, Expr)
-evalE e = evalState (eval [] e) (EState [])
+evalE :: Expr -> (Stack,Trace,Expr)
+evalE e = evalState (eval [] [] e) (EState [])
 
 --------------------------------------------------------------------------------
 -- Manipulating the heap
@@ -125,3 +142,5 @@ subst = undefined
 test1 = evalE $ Const
 
 test2 = evalE $ FaultyExpr "x" Const
+
+test3 = evalE $ CorrectExpr "y" (FaultyExpr "x" Const)
