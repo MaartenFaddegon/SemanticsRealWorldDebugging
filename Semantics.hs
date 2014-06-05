@@ -184,21 +184,33 @@ faultyExprs (Let (_,e1) e2)   = faultyExprs e1 ++ faultyExprs e2
 faultyExprs (CorrectExpr _ e) = faultyExprs e
 faultyExprs (FaultyExpr l e)  = l : faultyExprs e
 
+
+--------------------------------------------------------------------------------
+--
+
+contains :: Eq a => [a] -> a -> Bool
+contains ys x = [] /= filter (==x) ys
+
+subset :: Eq a => [a] -> [a] -> Bool
+subset xs ys = foldr ((&&) . (ys `contains`)) True xs
+
 --------------------------------------------------------------------------------
 -- Tests.
 
 gen_expr :: Int -> Gen Expr
 gen_expr 0 = elements [Const]
 gen_expr n = oneof [ elements [Const]
-                   , liftM2 Lambda arbitrary gen_expr'
-                   , liftM2 Apply gen_expr' arbitrary
-                   , liftM Var arbitrary
-                   , liftM3 mkLet arbitrary gen_expr' gen_expr'
-                   , liftM2 CorrectExpr arbitrary gen_expr'
-                   , liftM2 FaultyExpr arbitrary gen_expr'
+                   , liftM2 Lambda      gen_name gen_expr'
+                   , liftM2 Apply       gen_expr' gen_name
+                   , liftM  Var         gen_name
+                   , liftM3 mkLet       gen_name gen_expr' gen_expr'
+                   , liftM2 CorrectExpr gen_label gen_expr'
+                   , liftM2 FaultyExpr  gen_label gen_expr'
                    ]
   where gen_expr' = gen_expr (n `div` 2)
         mkLet n e1 e2 = Let (n,e1) e2
+        gen_label = elements $ map (:[]) ['A'..'Z']
+        gen_name  = elements $ map (:[]) ['a'..'z']
 
 instance Arbitrary Expr where
   arbitrary = sized gen_expr
@@ -206,8 +218,11 @@ instance Arbitrary Expr where
 propExact :: Expr -> Bool
 propExact e = faultyNodes e == faultyExprs e
 
+propSubset :: Expr -> Bool
+propSubset e = faultyNodes e `subset` faultyExprs e
+
 expr1 = CorrectExpr "y" (FaultyExpr "x" Const)
 
 test1 = propExact expr1
 
-
+expr2 = Let ("e",FaultyExpr "K" Const) (Let ("d",Const) Const)
