@@ -1,0 +1,10 @@
+Name:           Semantics
+Version:        1.0.0
+License:        BSD3
+Author:         Maarten Faddegon
+Build-Type:     Simple
+Cabal-Version:  >= 1.2
+
+Library
+    Build-Depends:   base >= 4 && < 5, monads-tf
+    Exposed-Modules: Semantics
