@@ -218,10 +218,10 @@ gen_expr n = oneof [ elements [Const]
                    , liftM2 CorrectExpr gen_label gen_expr'
                    , liftM2 FaultyExpr  gen_label gen_expr'
                    ]
-  where gen_expr' = gen_expr (n `div` 2)
+  where gen_expr' = gen_expr (n-1)
         mkLet n e1 e2 = Let (n,e1) e2
         gen_label = elements $ map (:[]) ['A'..'Z']
-        gen_name  = elements $ map (:[]) ['a'..'z']
+        gen_name  = elements $ map (:[]) ['x'..'z']
 
 instance Arbitrary Expr where
   arbitrary = sized gen_expr
@@ -232,12 +232,23 @@ propExact e = faultyNodes e == faultyExprs e
 propSubset :: Expr -> Bool
 propSubset e = faultyNodes e `subset` faultyExprs e
 
+
+test = quickCheckWith args propSubset
+  where args = Args { replay          = Nothing
+                    , maxSuccess      = 100000   -- number of tests
+                    , maxDiscardRatio = 10
+                    , maxSize         = 150      -- max subexpressions
+                    , chatty          = True
+                    }
+
+---
+
 expr1 = CorrectExpr "y" (FaultyExpr "x" Const)
+expr2 = Let ("e",FaultyExpr "K" Const) (Let ("d",Const) Const)
+expr3 = Let ("n",Lambda "n" Const) (Var "n")
+expr4 = Let ("n", Const) (Var "n")
 
 test1 = propExact expr1
 
-expr2 = Let ("e",FaultyExpr "K" Const) (Let ("d",Const) Const)
 
-expr3 = Let ("n",Lambda "n" Const) (Var "n")
 
-expr4 = Let ("n", Const) (Var "n")
