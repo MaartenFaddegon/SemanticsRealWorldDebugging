@@ -84,7 +84,7 @@ eval stk trc (Var x) = do
     (stk',e) -> do
       deleteHeap x
       (stkv,trcv,v) <- eval stk' trc e
-      insertHeap x (stkv,e)
+      insertHeap x (stkv,v)
       eval stk trcv (Var x) -- Notice how we retain the trace but swap back the stack
 
 eval stk trc (Observed l s e) = do
