@@ -1,10 +1,3 @@
-module Semantics
-( Expr(..)
-, faultyNodes
-, faultyExprs
-) 
-where
--- import Control.Monad (liftM2)
 import Control.Monad.State
 import Prelude hiding (Right)
 import Test.QuickCheck
@@ -50,7 +43,7 @@ data Expr = Const
           | CorrectExpr Label Expr
           | FaultyExpr Label Expr
           | Observed Label Stack Expr
-          deriving Show
+          deriving (Show,Eq)
 
 --------------------------------------------------------------------------------
 -- The reduction rules.
@@ -61,20 +54,25 @@ eval stk trc Const = return (stk,trc,Const)
 
 eval stk trc (Lambda x e) = return (stk,trc,Lambda x e)
 
-eval stk trc (CorrectExpr l e) = eval (push l stk) trc (Observed l stk e)
+eval stk trc (CorrectExpr l e) = evalUpto (push l stk) trc (Observed l stk e)
 
-eval stk trc (FaultyExpr l e)  = eval (push l stk) (trace (l,stk,Wrong) trc) e
+eval stk trc (FaultyExpr l e)  = evalUpto (push l stk) (trace (l,stk,Wrong) trc) e
 
 eval stk trc (Let (x,e1) e2) = do
   insertHeap x (stk,e2)
   eval stk trc e2
 
--- special case for weird generated testcases
-eval stk trc (Apply f x) = do
-  (stk_lam, trc_lam, e) <- eval stk trc f
+-- We added a special case for weird testcases that try to apply non-Lambda
+-- expressions. And we break out of endless loops by returning a Const when we
+-- detect such a loop.
+eval stk trc orig@(Apply f x) = do
+  (stk_lam, trc_lam, e) <- evalUpto stk trc f
   case e of 
-    Lambda y e -> eval stk_lam trc_lam (subst y x e)
-    _          -> return (stk_lam,trc_lam,Const)
+    Lambda y e -> let eSub = subst y x e
+                  in if eSub == orig 
+                     then return (stk_lam,trc_lam,Const) -- Loop detected
+                     else evalUpto stk_lam trc_lam eSub
+    _          -> return (stk_lam,trc_lam,Const) -- Apply non-Lambda?
 
 eval stk trc (Var x) = do
   r <- lookupHeap x
@@ -83,28 +81,36 @@ eval stk trc (Var x) = do
     (stk',Lambda y e) -> return (call stk stk',trc,Lambda y e)
     (stk',e) -> do
       deleteHeap x
-      (stkv,trcv,v) <- eval stk' trc e
+      (stkv,trcv,v) <- evalUpto stk' trc e
       insertHeap x (stkv,v)
-      eval stk trcv (Var x) -- Notice how we retain the trace but swap back the stack
+      evalUpto stk trcv (Var x) -- Notice how we retain the trace but swap back the stack
 
 eval stk trc (Observed l s e) = do
   case e of Const              -> return (stk,trace (l,s,Right) trc, Const)
-            (FaultyExpr l' e') -> eval stk (trace (l,s,Wrong) trc) (FaultyExpr l' e')
+            (FaultyExpr l' e') -> evalUpto stk (trace (l,s,Wrong) trc) (FaultyExpr l' e')
             _ -> do
-              (stk',trc',e') <- eval stk trc e
+              (stk',trc',e') <- evalUpto stk trc e
               return (stk',trc',(Observed l s e'))
+
+
+evalUpto :: Stack -> Trace -> Expr -> E (Stack,Trace,Expr)
+evalUpto stk trc expr = do n <- gets steps
+                           modify $ \s -> s {steps = n+1}
+                           if n > 500 
+                             then return (stk,trc,Const)
+                             else eval stk trc expr
 
 --------------------------------------------------------------------------------
 -- The state.
 
-data EState = EState { theHeap      :: [(Name,(Stack,Expr))]
-                     -- , theFreshVars :: [Name]
+data EState = EState { theHeap      :: ![(Name,(Stack,Expr))]
+                     , steps        :: !Int
                      }
 
 type E a = State EState a
 
 evalE' :: Expr -> (Stack,Trace,Expr)
-evalE' e = evalState (eval [] [] e) (EState [])
+evalE' e = evalState (eval [] [] e) (EState [] 0)
 
 evalE :: Expr -> Trace
 evalE e = let (_,t,_) = evalE' e in t
@@ -230,12 +236,11 @@ propExact :: Expr -> Bool
 propExact e = faultyNodes e == faultyExprs e
 
 propSubset :: Expr -> Bool
-propSubset e = faultyNodes e `subset` faultyExprs e
+propSubset e = (faultyNodes e) `subset` (faultyExprs e)
 
-
-test = quickCheckWith args propSubset
+main = quickCheckWith args propSubset
   where args = Args { replay          = Nothing
-                    , maxSuccess      = 100000   -- number of tests
+                    , maxSuccess      = 100000  -- number of tests
                     , maxDiscardRatio = 10
                     , maxSize         = 150      -- max subexpressions
                     , chatty          = True
@@ -250,5 +255,12 @@ expr4 = Let ("n", Const) (Var "n")
 
 test1 = propExact expr1
 
+-- Doesn't terminate:
+test2  = evalE $ Apply (Lambda "y" (Apply (                 (Lambda "z" ((Apply (Var "y") "z")))) "z")) "z"
+
+test2b = evalE $ Apply (Lambda "y" (Apply (Let ("x",Const) (Lambda "z" ((Apply (Var "y") "z")))) "z")) "z"
 
 
+test2c = evalE $ Apply ((Apply (Let ("z",Apply Const "x") (Lambda "z" (Apply ((Apply ((Apply (Var "x") "x")) "y")) "y"))) "z")) "z"
+
+test2d = evalE $ Apply (CorrectExpr "E" (Apply (Let ("z",Apply Const "x") (Lambda "z" (Apply (CorrectExpr "O" (Apply (CorrectExpr "D" (Apply (Var "x") "x")) "y")) "y"))) "z")) "z"
