@@ -37,12 +37,13 @@ type Name = String
 
 data Expr = Const
           | Lambda Name Expr
-          | Apply Expr Name
-          | Var Name
-          | Let (Name,Expr) Expr
-          | CorrectExpr Label Expr
-          | FaultyExpr Label Expr
-          | Observed Label Stack Expr
+          | Apply  Expr Name
+          | Var    Name
+          | Let    (Name,Expr) Expr
+          | ACCCorrect Label Expr
+          | ACCFaulty  Label Expr
+          | Observed   Label Stack Expr
+
           deriving (Show,Eq)
 
 --------------------------------------------------------------------------------
@@ -54,9 +55,9 @@ eval stk trc Const = return (stk,trc,Const)
 
 eval stk trc (Lambda x e) = return (stk,trc,Lambda x e)
 
-eval stk trc (CorrectExpr l e) = evalUpto (push l stk) trc (Observed l stk e)
+eval stk trc (ACCCorrect l e) = evalUpto (push l stk) trc (Observed l stk e)
 
-eval stk trc (FaultyExpr l e)  = evalUpto (push l stk) (trace (l,stk,Wrong) trc) e
+eval stk trc (ACCFaulty l e)  = evalUpto (push l stk) (trace (l,stk,Wrong) trc) e
 
 eval stk trc (Let (x,e1) e2) = do
   insertHeap x (stk,e2)
@@ -86,8 +87,8 @@ eval stk trc (Var x) = do
       evalUpto stk trcv (Var x) -- Notice how we retain the trace but swap back the stack
 
 eval stk trc (Observed l s e) = do
-  case e of Const              -> return (stk,trace (l,s,Right) trc, Const)
-            (FaultyExpr l' e') -> evalUpto stk (trace (l,s,Wrong) trc) (FaultyExpr l' e')
+  case e of Const             -> return (stk,trace (l,s,Right) trc, Const)
+            (ACCFaulty l' e') -> evalUpto stk (trace (l,s,Wrong) trc) (ACCFaulty l' e')
             _ -> do
               (stk',trc',e') <- evalUpto stk trc e
               return (stk',trc',(Observed l s e'))
@@ -140,8 +141,8 @@ subst n m (Lambda n' e)     = Lambda (sub n m n') (subst n m e)
 subst n m (Apply e n')      = Apply (subst n m e) (sub n m n')
 subst n m (Var n')          = Var (sub n m n')
 subst n m (Let (n',e1) e2)  = Let ((sub n m n'),(subst n m e1)) (subst n m e2)
-subst n m (CorrectExpr l e) = CorrectExpr l (subst n m e)
-subst n m (FaultyExpr l e)  = FaultyExpr l (subst n m e)
+subst n m (ACCCorrect l e) = ACCCorrect l (subst n m e)
+subst n m (ACCFaulty l e)  = ACCFaulty l (subst n m e)
 
 sub :: Name -> Name -> Name -> Name
 sub n m n' = if n == n' then n' else m
@@ -179,8 +180,8 @@ couldDependOn (l,s,_) (_,t,_) = push l s == t
 children :: Node -> Graph -> [Node]
 children n = (map (\(Arc _ tgt) -> tgt)) . (filter (\(Arc src _) -> src == n)) . snd
 
-faultyNodes' :: Graph -> [Label]
-faultyNodes' (ns,as) = (map (\(l,_,_) -> l)) . (filter faulty) $ ns
+algoDebug :: Graph -> [Label]
+algoDebug (ns,as) = (map (\(l,_,_) -> l)) . (filter faulty) $ ns
         where faulty (_,_,Right) = False
               faulty n = [] == filter isWrong (children n (ns,as))
 
@@ -188,7 +189,8 @@ isWrong :: Node -> Bool
 isWrong (_,_,Wrong) = True
 isWrong _           = False
 
-faultyNodes = faultyNodes' . mkGraph . evalE 
+faultyNodes :: Expr -> [Label]
+faultyNodes = algoDebug . mkGraph . evalE 
 
 --------------------------------------------------------------------------------
 -- List of faulty expressions.
@@ -199,8 +201,8 @@ faultyExprs (Lambda _ e)      = faultyExprs e
 faultyExprs (Apply e _)       = faultyExprs e
 faultyExprs (Var _)           = []
 faultyExprs (Let (_,e1) e2)   = faultyExprs e1 ++ faultyExprs e2
-faultyExprs (CorrectExpr _ e) = faultyExprs e
-faultyExprs (FaultyExpr l e)  = l : faultyExprs e
+faultyExprs (ACCCorrect _ e) = faultyExprs e
+faultyExprs (ACCFaulty l e)  = l : faultyExprs e
 
 --------------------------------------------------------------------------------
 --
@@ -221,8 +223,8 @@ gen_expr n = oneof [ elements [Const]
                    , liftM2 Apply       gen_expr' gen_name
                    , liftM  Var         gen_name
                    , liftM3 mkLet       gen_name gen_expr' gen_expr'
-                   , liftM2 CorrectExpr gen_label gen_expr'
-                   , liftM2 FaultyExpr  gen_label gen_expr'
+                   , liftM2 ACCCorrect gen_label gen_expr'
+                   , liftM2 ACCFaulty  gen_label gen_expr'
                    ]
   where gen_expr' = gen_expr (n-1)
         mkLet n e1 e2 = Let (n,e1) e2
@@ -242,14 +244,14 @@ main = quickCheckWith args propSubset
   where args = Args { replay          = Nothing
                     , maxSuccess      = 100000  -- number of tests
                     , maxDiscardRatio = 10
-                    , maxSize         = 150      -- max subexpressions
+                    , maxSize         = 1000    -- max subexpressions
                     , chatty          = True
                     }
 
 ---
 
-expr1 = CorrectExpr "y" (FaultyExpr "x" Const)
-expr2 = Let ("e",FaultyExpr "K" Const) (Let ("d",Const) Const)
+expr1 = ACCCorrect "y" (ACCFaulty "x" Const)
+expr2 = Let ("e",ACCFaulty "K" Const) (Let ("d",Const) Const)
 expr3 = Let ("n",Lambda "n" Const) (Var "n")
 expr4 = Let ("n", Const) (Var "n")
 
@@ -263,4 +265,4 @@ test2b = evalE $ Apply (Lambda "y" (Apply (Let ("x",Const) (Lambda "z" ((Apply (
 
 test2c = evalE $ Apply ((Apply (Let ("z",Apply Const "x") (Lambda "z" (Apply ((Apply ((Apply (Var "x") "x")) "y")) "y"))) "z")) "z"
 
-test2d = evalE $ Apply (CorrectExpr "E" (Apply (Let ("z",Apply Const "x") (Lambda "z" (Apply (CorrectExpr "O" (Apply (CorrectExpr "D" (Apply (Var "x") "x")) "y")) "y"))) "z")) "z"
+test2d = evalE $ Apply (ACCCorrect "E" (Apply (Let ("z",Apply Const "x") (Lambda "z" (Apply (ACCCorrect "O" (Apply (ACCCorrect "D" (Apply (Var "x") "x")) "y")) "y"))) "z")) "z"
