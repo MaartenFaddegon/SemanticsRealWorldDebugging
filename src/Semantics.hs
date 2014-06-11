@@ -152,11 +152,9 @@ sub n m n' = if n == n' then n' else m
 --
 -- A recorded value is Right or Wrong.
 
-type Record = (Label,Stack,Correctness)
-
-type Trace = [Record]
-
-data Correctness = Right | Wrong deriving (Show,Eq)
+data Value  = Right | Wrong       deriving (Show,Eq)
+type Record = (Label,Stack,Value)
+type Trace  = [Record]
 
 trace :: Record -> Trace -> Trace
 trace = (:)
