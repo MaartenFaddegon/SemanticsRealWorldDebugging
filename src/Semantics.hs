@@ -238,7 +238,21 @@ propExact e = faultyNodes e == faultyExprs e
 propSubset :: Expr -> Bool
 propSubset e = (faultyNodes e) `subset` (faultyExprs e)
 
-main = quickCheckWith args propSubset
+propFoundFaulty :: Expr -> Bool
+propFoundFaulty e = faultyNodes e /= []
+
+propIsWrong :: Expr -> Bool
+propIsWrong e = case lookupT "toplevel" (evalE $ Observed "toplevel" [] e) of
+  (Just Wrong) -> True
+  _            -> False
+
+lookupT :: Label -> Trace -> Maybe Value
+lookupT l t = lookup l (zip ls vs)
+  where (ls,_,vs) = unzip3 t
+
+propFaultyIfWrong e = propIsWrong e ==> propFoundFaulty e
+
+main = quickCheckWith args propFaultyIfWrong
   where args = Args { replay          = Nothing
                     , maxSuccess      = 100000  -- number of tests
                     , maxDiscardRatio = 10
