@@ -191,7 +191,7 @@ faultyNodes :: Expr -> [Label]
 faultyNodes = algoDebug . mkGraph . evalE 
 
 --------------------------------------------------------------------------------
--- List of faulty expressions.
+-- List of faulty expressions (static analysis).
 
 faultyExprs :: Expr -> [Label]
 faultyExprs Const             = []
@@ -199,17 +199,8 @@ faultyExprs (Lambda _ e)      = faultyExprs e
 faultyExprs (Apply e _)       = faultyExprs e
 faultyExprs (Var _)           = []
 faultyExprs (Let (_,e1) e2)   = faultyExprs e1 ++ faultyExprs e2
-faultyExprs (ACCCorrect _ e) = faultyExprs e
-faultyExprs (ACCFaulty l e)  = l : faultyExprs e
-
---------------------------------------------------------------------------------
---
-
-contains :: Eq a => [a] -> a -> Bool
-contains ys x = [] /= filter (==x) ys
-
-subset :: Eq a => [a] -> [a] -> Bool
-subset xs ys = foldr ((&&) . (ys `contains`)) True xs
+faultyExprs (ACCCorrect _ e)  = faultyExprs e
+faultyExprs (ACCFaulty l e)   = l : faultyExprs e
 
 --------------------------------------------------------------------------------
 -- Tests.
@@ -237,6 +228,9 @@ propExact e = faultyNodes e == faultyExprs e
 
 propSubset :: Expr -> Bool
 propSubset e = (faultyNodes e) `subset` (faultyExprs e)
+
+subset :: Eq a => [a] -> [a] -> Bool
+subset xs ys = foldr ((&&) . (`elem` ys)) True xs
 
 propFoundFaulty :: Expr -> Bool
 propFoundFaulty e = faultyNodes e /= []
