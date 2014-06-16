@@ -1,6 +1,7 @@
 import Control.Monad.State
 import Prelude hiding (Right)
 import Test.QuickCheck
+import Data.Graph.Libgraph
 
 --------------------------------------------------------------------------------
 -- Stack handling: push and call
@@ -152,7 +153,7 @@ sub n m n' = if n == n' then n' else m
 --
 -- A recorded value is Right or Wrong.
 
-data Value  = Right | Wrong       deriving (Show,Eq)
+data Value  = Right | Wrong       deriving (Show,Eq,Ord)
 type Record = (Label,Stack,Value)
 type Trace  = [Record]
 
@@ -162,33 +163,47 @@ trace = (:)
 --------------------------------------------------------------------------------
 -- Algorithmic debugging from a trace.
 
-type Node  = Record
-data Arc   = Arc Node Node deriving Show
-type Graph = ([Node],[Arc])
+faultyNodes :: Expr -> [Label]
+faultyNodes = algoDebug . rmCycles . mkGraph . evalE 
 
-mkGraph :: Trace -> Graph
-mkGraph trace = (trace,foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
+data Vertex = Vertex [Record] deriving (Eq,Ord)
 
-arcsFrom :: Record -> Trace -> [Arc]
+mkGraph :: Trace -> Graph Vertex
+mkGraph trace = mapGraph (\r -> Vertex [r]) (mkGraph' trace)
+
+mkGraph' :: Trace -> Graph Record
+mkGraph' trace = Graph (head trace)
+                       trace
+                       (foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
+
+arcsFrom :: Record -> Trace -> [Arc Record]
 arcsFrom src = (map (Arc src)) . (filter (src `couldDependOn`))
 
 couldDependOn :: Record -> Record -> Bool
 couldDependOn (l,s,_) (_,t,_) = push l s == t
 
-children :: Node -> Graph -> [Node]
-children n = (map (\(Arc _ tgt) -> tgt)) . (filter (\(Arc src _) -> src == n)) . snd
+algoDebug :: Graph Vertex -> [Label]
+algoDebug g@(Graph _ vs as) = foldl accLabels [] (filter faulty vs)
+        where accLabels acc v = acc ++ getLabels v
+              faulty :: Vertex -> Bool
+              faulty v = isWrong v && (null $ (filter isWrong) (succs g v))
 
-algoDebug :: Graph -> [Label]
-algoDebug (ns,as) = (map (\(l,_,_) -> l)) . (filter faulty) $ ns
-        where faulty (_,_,Right) = False
-              faulty n = [] == filter isWrong (children n (ns,as))
+isWrong :: Vertex -> Bool
+isWrong (Vertex rs) = foldl (\w r -> case r of (_,_,Wrong) -> True; _ -> w) False rs
 
-isWrong :: Node -> Bool
-isWrong (_,_,Wrong) = True
-isWrong _           = False
+getLabels :: Vertex -> [Label]
+getLabels (Vertex rs) = map (\(l,_,_) -> l) rs
 
-faultyNodes :: Expr -> [Label]
-faultyNodes = algoDebug . mkGraph . evalE 
+
+--------------------------------------------------------------------------------
+-- Removing cycles from a graph.
+
+rmCycles :: Graph Vertex -> Graph Vertex
+rmCycles g = dagify collapse g
+
+collapse :: [Vertex] -> Vertex
+collapse ws = foldl collapse' (Vertex []) ws
+  where collapse' (Vertex qs) (Vertex rs) = Vertex (qs ++ rs)
 
 --------------------------------------------------------------------------------
 -- List of faulty expressions (static analysis).

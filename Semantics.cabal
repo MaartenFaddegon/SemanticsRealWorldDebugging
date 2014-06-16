@@ -6,7 +6,7 @@ Build-Type:     Simple
 Cabal-Version:  >= 1.10
 
 Executable Semantics-test
-  Build-Depends:     base >= 4 && < 5, monads-tf, QuickCheck
+  Build-Depends:     base >= 4 && < 5, monads-tf, QuickCheck, libgraph
   hs-source-dirs:    src
   main-is:           Semantics.hs
   default-language:  Haskell2010
