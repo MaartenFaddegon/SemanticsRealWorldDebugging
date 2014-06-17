@@ -73,11 +73,8 @@ eval stk trc (Let (x,e1) e2) = do
 eval stk trc orig@(Apply f x) = do
   (stk_lam, trc_lam, e) <- evalUpto stk trc f
   case e of 
-    Lambda y e -> let eSub = subst y x e
-                  in if eSub == orig 
-                     then return (stk_lam,trc_lam,Const) -- Loop detected
-                     else evalUpto stk_lam trc_lam eSub
-    _          -> return (stk_lam,trc_lam,Const) -- Apply non-Lambda?
+    Lambda y e -> evalUpto stk_lam trc_lam (subst y x e)
+    _          -> return (stk_lam,trc_lam,Exception "Apply non-Lambda?")
 
 eval stk trc (Var x) = do
   r <- lookupHeap x
@@ -99,6 +96,9 @@ eval stk trc (Observed l s e) = do
             _ -> do
               (stk',trc',e') <- evalUpto stk trc e
               evalUpto stk' trc' (Observed l s e')
+
+
+eval stk trc (Exception s) = return (stk,trc,Exception s)
 
 
 evalUpto :: Stack -> Trace -> Expr -> E (Stack,Trace,Expr)
