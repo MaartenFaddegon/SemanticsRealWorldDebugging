@@ -46,6 +46,7 @@ data Expr = Const
           | ACCCorrect Label Expr
           | ACCFaulty  Label Expr
           | Observed   Label Stack Expr
+          | Exception  String
 
           deriving (Show,Eq)
 
@@ -91,12 +92,13 @@ eval stk trc (Var x) = do
 
 -- MF TODO: Ik denk dat alle gevallen hier behandeld moeten worden ipv de _ op het eind?
 eval stk trc (Observed l s e) = do
-  case e of Const             -> return (stk,trace (l,s,Right) trc, Const)
-            (ACCFaulty l' e') -> evalUpto stk (trace (l,s,Wrong) trc) (ACCFaulty l' e')
-            (Let (x,e1) e2)   -> evalUpto stk trc (Let (x,e1) (Observed l s e2))
+  case e of Const              -> return (stk,trace (l,s,Right) trc, Const)
+            (ACCFaulty l' e')  -> evalUpto stk (trace (l,s,Wrong) trc) (ACCFaulty l' e')
+            (ACCCorrect l' e') -> evalUpto stk trc (ACCCorrect l' (Observed l s e'))
+            (Let (x,e1) e2)    -> evalUpto stk trc (Let (x,e1) (Observed l s e2))
             _ -> do
               (stk',trc',e') <- evalUpto stk trc e
-              return (stk',trc',(Observed l s e'))
+              evalUpto stk' trc' (Observed l s e')
 
 
 evalUpto :: Stack -> Trace -> Expr -> E (Stack,Trace,Expr)
@@ -106,8 +108,8 @@ evalUpto stk trc expr = do n <- gets steps
                            --                     ) 
                            --                     n'
                            modify $ \s -> s {steps = n+1}
-                           if n > 500 
-                             then return (stk,trc,Const)
+                           if n > 500
+                             then return (stk,trc,Exception "Too many steps!")
                              else eval stk trc expr
 
 --------------------------------------------------------------------------------
@@ -246,6 +248,9 @@ gen_expr n = oneof [ elements [Const]
 instance Arbitrary Expr where
   arbitrary = sized gen_expr
 
+propValidExpr :: Expr -> Bool
+propValidExpr e = let (_,_,e') = evalE' e in e' == Const
+
 propExact :: Expr -> Bool
 propExact e = faultyNodes e == faultyExprs e
 
@@ -269,7 +274,7 @@ lookupT l t = lookup l (zip ls vs)
 
 propFaultyIfWrong e = propIsWrong e ==> propFoundFaulty e
 
-main = quickCheckWith args propFaultyIfWrong
+main = quickCheckWith args (\e -> propValidExpr e ==> propFaultyIfWrong e)
   where args = Args { replay          = Nothing
                     , maxSuccess      = 100000  -- number of tests
                     , maxDiscardRatio = 10
@@ -320,3 +325,8 @@ test4a = (display showGraph) . mkGraph . evalE $ e4
 test4b = evalE e4
 
 e5 = ACCFaulty "OUTER" (ACCCorrect "INNER" (Let ("x",Const) (Var "x")))
+
+e6 = ACCFaulty "A" (ACCCorrect "B" (ACCCorrect "C" (ACCFaulty "D" (Var "x"))))
+
+test = (display showGraph) . rmCycles . mkGraph . evalE
+test' = (display showGraph) . mkGraph . evalE
