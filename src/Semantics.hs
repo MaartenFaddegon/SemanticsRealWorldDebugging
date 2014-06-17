@@ -166,7 +166,7 @@ trace = (:)
 faultyNodes :: Expr -> [Label]
 faultyNodes = algoDebug . rmCycles . mkGraph . evalE 
 
-data Vertex = Vertex [Record] deriving (Eq,Ord)
+data Vertex = Vertex [Record] deriving (Eq,Ord,Show)
 
 mkGraph :: Trace -> Graph Vertex
 mkGraph trace = mapGraph (\r -> Vertex [r]) (mkGraph' trace)
@@ -177,7 +177,7 @@ mkGraph' trace = Graph (head trace)
                        (foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
 
 arcsFrom :: Record -> Trace -> [Arc Record]
-arcsFrom src = (map (Arc src)) . (filter (src `couldDependOn`))
+arcsFrom src = (map (Arc src)) . (filter (`couldDependOn` src))
 
 couldDependOn :: Record -> Record -> Bool
 couldDependOn (l,s,_) (_,t,_) = push l s == t
@@ -271,6 +271,17 @@ main = quickCheckWith args propFaultyIfWrong
 
 ---
 
+showGraph :: Graph Vertex -> String
+showGraph g = showWith g showVertex noShow 
+
+showVertex :: Vertex -> String
+showVertex = show
+
+noShow :: Arc a -> String
+noShow _ = ""
+
+---
+
 expr1 = ACCCorrect "y" (ACCFaulty "x" Const)
 expr2 = Let ("e",ACCFaulty "K" Const) (Let ("d",Const) Const)
 expr3 = Let ("n",Lambda "n" Const) (Var "n")
@@ -287,3 +298,8 @@ test2b = evalE $ Apply (Lambda "y" (Apply (Let ("x",Const) (Lambda "z" ((Apply (
 test2c = evalE $ Apply ((Apply (Let ("z",Apply Const "x") (Lambda "z" (Apply ((Apply ((Apply (Var "x") "x")) "y")) "y"))) "z")) "z"
 
 test2d = evalE $ Apply (ACCCorrect "E" (Apply (Let ("z",Apply Const "x") (Lambda "z" (Apply (ACCCorrect "O" (Apply (ACCCorrect "D" (Apply (Var "x") "x")) "y")) "y"))) "z")) "z"
+
+-- lookup failed?
+
+test3a = faultyNodes $ ACCFaulty "A" (ACCCorrect "B" Const)
+test3b = (display showGraph) . mkGraph . evalE $ ACCFaulty "A" (ACCCorrect "B" Const)
