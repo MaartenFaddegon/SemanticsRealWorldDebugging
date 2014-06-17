@@ -3,6 +3,8 @@ import Prelude hiding (Right)
 import Test.QuickCheck
 import Data.Graph.Libgraph
 
+import qualified Debug.Trace as Debug
+
 --------------------------------------------------------------------------------
 -- Stack handling: push and call
 
@@ -87,9 +89,11 @@ eval stk trc (Var x) = do
       insertHeap x (stkv,v)
       evalUpto stk trcv (Var x) -- Notice how we retain the trace but swap back the stack
 
+-- MF TODO: Ik denk dat alle gevallen hier behandeld moeten worden ipv de _ op het eind?
 eval stk trc (Observed l s e) = do
   case e of Const             -> return (stk,trace (l,s,Right) trc, Const)
             (ACCFaulty l' e') -> evalUpto stk (trace (l,s,Wrong) trc) (ACCFaulty l' e')
+            (Let (x,e1) e2)   -> evalUpto stk trc (Let (x,e1) (Observed l s e2))
             _ -> do
               (stk',trc',e') <- evalUpto stk trc e
               return (stk',trc',(Observed l s e'))
@@ -97,6 +101,10 @@ eval stk trc (Observed l s e) = do
 
 evalUpto :: Stack -> Trace -> Expr -> E (Stack,Trace,Expr)
 evalUpto stk trc expr = do n <- gets steps
+                           -- let n = Debug.trace (  "step" ++ show n' ++ ": " ++ show expr ++ "\n"
+                           --                     ++ "  with trace " ++ show trc
+                           --                     ) 
+                           --                     n'
                            modify $ \s -> s {steps = n+1}
                            if n > 500 
                              then return (stk,trc,Const)
@@ -112,7 +120,7 @@ data EState = EState { theHeap      :: ![(Name,(Stack,Expr))]
 type E a = State EState a
 
 evalE' :: Expr -> (Stack,Trace,Expr)
-evalE' e = evalState (eval [] [] e) (EState [] 0)
+evalE' e = evalState (evalUpto [] [] e) (EState [] 0)
 
 evalE :: Expr -> Trace
 evalE e = let (_,t,_) = evalE' e in t
@@ -166,18 +174,18 @@ trace = (:)
 faultyNodes :: Expr -> [Label]
 faultyNodes = algoDebug . rmCycles . mkGraph . evalE 
 
-data Vertex = Vertex [Record] deriving (Eq,Ord,Show)
+data Vertex = Vertex [Record] deriving (Eq,Ord)
 
 mkGraph :: Trace -> Graph Vertex
 mkGraph trace = mapGraph (\r -> Vertex [r]) (mkGraph' trace)
 
 mkGraph' :: Trace -> Graph Record
-mkGraph' trace = Graph (head trace)
+mkGraph' trace = Graph (last trace)
                        trace
                        (foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
 
 arcsFrom :: Record -> Trace -> [Arc Record]
-arcsFrom src = (map (Arc src)) . (filter (`couldDependOn` src))
+arcsFrom src = (map (Arc src)) . (filter (src `couldDependOn`))
 
 couldDependOn :: Record -> Record -> Bool
 couldDependOn (l,s,_) (_,t,_) = push l s == t
@@ -275,7 +283,7 @@ showGraph :: Graph Vertex -> String
 showGraph g = showWith g showVertex noShow 
 
 showVertex :: Vertex -> String
-showVertex = show
+showVertex (Vertex rs) = show rs
 
 noShow :: Arc a -> String
 noShow _ = ""
@@ -303,3 +311,12 @@ test2d = evalE $ Apply (ACCCorrect "E" (Apply (Let ("z",Apply Const "x") (Lambda
 
 test3a = faultyNodes $ ACCFaulty "A" (ACCCorrect "B" Const)
 test3b = (display showGraph) . mkGraph . evalE $ ACCFaulty "A" (ACCCorrect "B" Const)
+test3c = (display showGraph) . rmCycles . mkGraph . evalE $ ACCFaulty "L" (ACCFaulty "L" (Var "z"))
+
+e4 = ACCFaulty "O" (ACCCorrect "C" (Let ("y",Const) (ACCCorrect "R" (ACCCorrect "F" (Var "y")))))
+
+test4a = (display showGraph) . mkGraph . evalE $ e4
+
+test4b = evalE e4
+
+e5 = ACCFaulty "OUTER" (ACCCorrect "INNER" (Let ("x",Const) (Var "x")))
