@@ -174,7 +174,14 @@ trace = (:)
 -- Algorithmic debugging from a trace.
 
 faultyNodes :: Expr -> [Label]
-faultyNodes = algoDebug . rmCycles . mkGraph . evalE 
+faultyNodes = getLabels . (findFaulty wrongCC mergeCC) . mkGraph . evalE 
+
+wrongCC :: Vertex -> Bool
+wrongCC (Vertex rs) = foldl (\w r -> case r of (_,_,Wrong) -> True; _ -> w) False rs
+
+getLabels = foldl accLabels []
+  where accLabels acc v = acc ++ getLabels' v
+        getLabels' (Vertex rs) = map (\(l,_,_) -> l) rs
 
 data Vertex = Vertex [Record] deriving (Eq,Ord)
 
@@ -192,28 +199,26 @@ arcsFrom src = (map (Arc src)) . (filter (src `couldDependOn`))
 couldDependOn :: Record -> Record -> Bool
 couldDependOn (l,s,_) (_,t,_) = push l s == t
 
-algoDebug :: Graph Vertex -> [Label]
-algoDebug g@(Graph _ vs as) = foldl accLabels [] (filter faulty vs)
-        where accLabels acc v = acc ++ getLabels v
-              faulty :: Vertex -> Bool
-              faulty v = isWrong v && (null $ (filter isWrong) (succs g v))
+-- algoDebug :: Graph Vertex -> [Label]
+-- algoDebug g@(Graph _ vs as) = foldl accLabels [] (filter faulty vs)
+--         where accLabels acc v = acc ++ getLabels v
+--               faulty :: Vertex -> Bool
+--               faulty v = isWrong v && (null $ (filter isWrong) (succs g v))
 
-isWrong :: Vertex -> Bool
-isWrong (Vertex rs) = foldl (\w r -> case r of (_,_,Wrong) -> True; _ -> w) False rs
 
-getLabels :: Vertex -> [Label]
-getLabels (Vertex rs) = map (\(l,_,_) -> l) rs
+-- getLabels :: Vertex -> [Label]
+-- getLabels (Vertex rs) = map (\(l,_,_) -> l) rs
 
 
 --------------------------------------------------------------------------------
 -- Removing cycles from a graph.
 
-rmCycles :: Graph Vertex -> Graph Vertex
-rmCycles g = dagify collapse g
+-- rmCycles :: Graph Vertex -> Graph Vertex
+-- rmCycles g = dagify merge g
 
-collapse :: [Vertex] -> Vertex
-collapse ws = foldl collapse' (Vertex []) ws
-  where collapse' (Vertex qs) (Vertex rs) = Vertex (qs ++ rs)
+mergeCC :: [Vertex] -> Vertex
+mergeCC ws = foldl merge' (Vertex []) ws
+  where merge' (Vertex qs) (Vertex rs) = Vertex (qs ++ rs)
 
 --------------------------------------------------------------------------------
 -- List of faulty expressions (static analysis).
@@ -316,7 +321,7 @@ test2d = evalE $ Apply (ACCCorrect "E" (Apply (Let ("z",Apply Const "x") (Lambda
 
 test3a = faultyNodes $ ACCFaulty "A" (ACCCorrect "B" Const)
 test3b = (display showGraph) . mkGraph . evalE $ ACCFaulty "A" (ACCCorrect "B" Const)
-test3c = (display showGraph) . rmCycles . mkGraph . evalE $ ACCFaulty "L" (ACCFaulty "L" (Var "z"))
+-- test3c = (display showGraph) . rmCycles . mkGraph . evalE $ ACCFaulty "L" (ACCFaulty "L" (Var "z"))
 
 e4 = ACCFaulty "O" (ACCCorrect "C" (Let ("y",Const) (ACCCorrect "R" (ACCCorrect "F" (Var "y")))))
 
@@ -328,5 +333,7 @@ e5 = ACCFaulty "OUTER" (ACCCorrect "INNER" (Let ("x",Const) (Var "x")))
 
 e6 = ACCFaulty "A" (ACCCorrect "B" (ACCCorrect "C" (ACCFaulty "D" (Var "x"))))
 
-test = (display showGraph) . rmCycles . mkGraph . evalE
+test = (display showGraph) . (dagify mergeCC) . mkGraph . evalE
 test' = (display showGraph) . mkGraph . evalE
+
+e7 = ACCFaulty "D" (ACCCorrect "O" (Apply (ACCFaulty "T" (Apply (Let ("z",Apply (Apply (Var "y") "x") "x") (Lambda "z" (ACCFaulty "D" (ACCFaulty "W" (Var "x"))))) "z")) "y"))
