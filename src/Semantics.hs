@@ -336,4 +336,22 @@ e6 = ACCFaulty "A" (ACCCorrect "B" (ACCCorrect "C" (ACCFaulty "D" (Var "x"))))
 test = (display showGraph) . (dagify mergeCC) . mkGraph . evalE
 test' = (display showGraph) . mkGraph . evalE
 
-e7 = ACCFaulty "D" (ACCCorrect "O" (Apply (ACCFaulty "T" (Apply (Let ("z",Apply (Apply (Var "y") "x") "x") (Lambda "z" (ACCFaulty "D" (ACCFaulty "W" (Var "x"))))) "z")) "y"))
+e7 = ACCFaulty "A" (ACCCorrect "B" (Apply (ACCFaulty "C" (Apply (Let ("z",Apply (Apply (Var "y") "x") "x") (Lambda "z" (ACCFaulty "D" (ACCFaulty "E" (Var "x"))))) "z")) "y"))
+
+e7' = ACCFaulty "A" 
+        (ACCCorrect "B"
+          (Apply 
+            (Apply 
+              (Let
+                ("z", Const )
+                (Lambda "z" 
+                  (ACCFaulty "C" (ACCFaulty "D" (Var "x")))
+                )
+              ) 
+            "z"
+            ) 
+           "y"
+          )
+        )
+
+-- e7' = ACCFaulty "A" (ACCCorrect "B" (Apply ((Apply (Let ("z",Apply (Apply (Var "y") "x") "x") (Lambda "z" (ACCFaulty "D" (ACCFaulty "E" (Var "x"))))) "z")) "y"))
