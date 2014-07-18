@@ -1,4 +1,4 @@
-module IntendedSemantics where
+module TraceSemantics where
 
 import Control.Monad.State(State)
 import Prelude hiding (Right)
