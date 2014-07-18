@@ -26,6 +26,12 @@ trace = (:)
 format :: Trace Record -> Trace Record
 format trc = trc
 
+children :: Trace Record -> Id -> (String, String)
+children trc id = (f (ArgOf id),f (ResOf id))
+  where f p = case filter (\(_,_,v) -> traceParent v == p) trc of
+                []        -> "_"
+                [(_,_,v)] -> traceValue v
+
 --------------------------------------------------------------------------------
 -- Expressions
 
