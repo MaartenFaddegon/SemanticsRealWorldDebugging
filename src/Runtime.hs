@@ -42,13 +42,12 @@ data ExprExc expr = Exception String
                   | Expression expr
                   deriving Eq
 
-data Context expr = Context { theHeap       :: !(Heap expr)
-                            , theTrace      :: !Trace
-                            , steps         :: !Int
+data Context expr = Context { heap        :: !(Heap expr)
+                            , reductionCount :: !Int
                             }
 
 estate0 :: Context expr
-estate0 = Context heap0 trace0 0
+estate0 = Context heap0 0
 
 evalE' :: ReduceFun expr -> expr -> (Stack,Trace,ExprExc expr)
 evalE' eval e = evalState f estate0
@@ -59,11 +58,12 @@ evalE eval e = let (_,t,_) = evalE' eval e in t
 
 evalUpto :: ReduceFun expr ->  Stack -> Trace -> expr 
          -> State (Context expr) (Stack,Trace,ExprExc expr)
-evalUpto eval stk trc expr = do n <- gets steps
-                                modify $ \s -> s {steps = n+1}
-                                if n > 500
-                                  then return (stk,trc,Exception "Too many steps!")
-                                  else eval stk trc expr
+evalUpto eval stk trc expr = do 
+  n <- gets reductionCount
+  modify $ \s -> s {reductionCount = n+1}
+  if n > 500
+    then return (stk,trc,Exception "Giving up after 500 reductions.")
+    else eval stk trc expr
 
 --------------------------------------------------------------------------------
 -- Manipulating the heap.
@@ -75,14 +75,14 @@ heap0 :: Heap expr
 heap0 = []
 
 insertHeap :: Name -> (Stack,expr) -> State (Context expr) ()
-insertHeap x e = modify $ \s -> s{theHeap = (x,e) : (theHeap s)}
+insertHeap x e = modify $ \s -> s{heap = (x,e) : (heap s)}
 
 deleteHeap :: Name -> State (Context expr) ()
-deleteHeap x = modify $ \s -> s{theHeap = filter ((/= x) . fst) (theHeap s)}
+deleteHeap x = modify $ \s -> s{heap = filter ((/= x) . fst) (heap s)}
 
 lookupHeap :: Name -> State (Context expr) (Stack,ExprExc expr)
 lookupHeap x = do 
-  me <- fmap (lookup x . theHeap) get
+  me <- fmap (lookup x . heap) get
   case me of
     Nothing      -> return ([], Exception "Lookup failed")
     Just (stk,e) -> return (stk,Expression e)
@@ -95,9 +95,6 @@ lookupHeap x = do
 data Value  = Right | Wrong       deriving (Show,Eq,Ord)
 type Record = (Label,Stack,Value)
 type Trace  = [Record]
-
-trace0 :: Trace
-trace0 = []
 
 trace :: Record -> Trace -> Trace
 trace = (:)
