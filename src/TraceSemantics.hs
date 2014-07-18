@@ -8,7 +8,12 @@ import Context
 --------------------------------------------------------------------------------
 -- Tracing.
 
-type Value  = String
+data Id = Root | Id Int
+  deriving (Show,Eq)
+
+data Value  = Value { traceId :: Id, traceParent :: Id, traceValue :: String }
+  deriving (Show)
+
 type Record = (Label,Stack,Value)
 
 trace :: Record -> Trace Record -> Trace Record
@@ -23,7 +28,7 @@ data Expr = Const    Int
           | Var      Name
           | Let      (Name,Expr) Expr
           | ACC      Label Expr
-          | Observed Label Stack Expr
+          | Observed Label Stack Id Expr
           deriving (Show,Eq)
 
 --------------------------------------------------------------------------------
@@ -38,7 +43,7 @@ reduce stk trc (Lambda x e) =
   return (stk,trc,Expression $ Lambda x e)
 
 reduce stk trc (ACC l e) =
-  evalUpto reduce (push l stk) trc (Observed l stk e)
+  evalUpto reduce (push l stk) trc (Observed l stk Root e)
 
 reduce stk trc (Let (x,e1) e2) = do
   insertHeap x (stk,e1)
@@ -67,30 +72,34 @@ reduce stk trc (Var x) = do
           evalUpto reduce stk trcv (Var x) -- Notice how we retain the trace but swap back the stack
 
 -- MF TODO: Ik denk dat alle gevallen hier behandeld moeten worden ipv de _ op het eind?
-reduce stk trc (Observed l s e) = do
+reduce stk trc (Observed l s p e) = do
   (stk',trc',e') <- evalUpto reduce stk trc e
   case e' of
     Exception msg           -> return (stk',trc',Exception msg)
-    Expression (Const i)    -> return (stk',trace (l,s,show i) trc',Expression (Const i))
+    Expression (Const i)    -> do
+      id <- getUniq
+      return (stk',trace (l,s,Value (Id id) p (show i)) trc',Expression (Const i))
     Expression (Lambda x e) -> do
+      id <- getUniq
       let x' = "_" ++ x; x'' = "__" ++ x
           lRes = l ++ "-result"; lArg = l ++ "-argument"
-          innerLam = Lambda x (Observed lRes s e)
-          body     = Let (x',Observed lArg stk (Var x'')) 
+          innerLam = Lambda x (Observed lRes s (Id id) e)
+          body     = Let (x',Observed lArg stk (Id id) (Var x'')) 
                          (Apply innerLam x')
-      evalUpto reduce stk' trc' (Lambda x'' body)
+          trc''     = trace (l,s,Value (Id id) p "\\") trc'
+      evalUpto reduce stk' trc'' (Lambda x'' body)
 
 --------------------------------------------------------------------------------
 -- Substituting variable names.
 
 subst :: Name -> Name -> Expr -> Expr
-subst n m (Const i)         = Const i
-subst n m (Lambda n' e)     = Lambda (sub n m n') (subst n m e)
-subst n m (Apply e n')      = Apply (subst n m e) (sub n m n')
-subst n m (Var n')          = Var (sub n m n')
-subst n m (Let (n',e1) e2)  = Let ((sub n m n'),(subst n m e1)) (subst n m e2)
-subst n m (ACC l e)         = ACC l (subst n m e)
-subst n m (Observed l s e)  = Observed l s (subst n m e)
+subst n m (Const i)          = Const i
+subst n m (Lambda n' e)      = Lambda (sub n m n') (subst n m e)
+subst n m (Apply e n')       = Apply (subst n m e) (sub n m n')
+subst n m (Var n')           = Var (sub n m n')
+subst n m (Let (n',e1) e2)   = Let ((sub n m n'),(subst n m e1)) (subst n m e2)
+subst n m (ACC l e)          = ACC l (subst n m e)
+subst n m (Observed l s p e) = Observed l s p (subst n m e)
 
 sub :: Name -> Name -> Name -> Name
 sub n m n' = if n == n' then m else n'

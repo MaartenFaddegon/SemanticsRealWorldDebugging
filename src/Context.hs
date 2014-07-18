@@ -2,7 +2,6 @@ module Context where
 
 import Control.Monad.State
 import Data.Graph.Libgraph
-import qualified Debug.Trace as Debug
 
 --------------------------------------------------------------------------------
 -- Stack handling: push and call.
@@ -55,6 +54,17 @@ lookupHeap x = do
     Just (stk,e) -> return (stk,Expression e)
 
 --------------------------------------------------------------------------------
+-- Tracing help.
+
+getUniq :: State (Context expr) Int
+getUniq = do
+  i <- gets uniq
+  modify $ \cxt -> cxt { uniq = i + 1 }
+  return i
+
+uniq0 = 1
+
+--------------------------------------------------------------------------------
 -- The state.
 
 type Trace record = [record]
@@ -66,16 +76,20 @@ data ExprExc expr = Exception String
                   | Expression expr
                   deriving (Show,Eq)
 
-data Context expr = Context { heap        :: !(Heap expr)
+data Context expr = Context { heap           :: !(Heap expr)
                             , reductionCount :: !Int
+                            , uniq           :: !Int
                             }
 
-estate0 :: Context expr
-estate0 = Context heap0 0
+context0 :: Context expr
+context0 = Context { heap = heap0 
+                   , reductionCount = 0
+                   , uniq = uniq0
+                   }
 
 evalE' :: Show expr
        => ReduceFun record expr -> expr -> (Stack,Trace record,ExprExc expr)
-evalE' reduce e = evalState f estate0
+evalE' reduce e = evalState f context0
   where f = evalUpto reduce [] [] e
 
 evalE :: Show expr => ReduceFun record expr -> expr -> Trace record
@@ -89,6 +103,4 @@ evalUpto reduce stk trc expr = do
   modify $ \s -> s {reductionCount = n+1}
   if n > 500
     then return (stk,trc,Exception "Giving up after 500 reductions.")
-    else reduce stk trc (Debug.trace ("reduce " ++ show expr) expr)
-
-
+    else reduce stk trc expr
