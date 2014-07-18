@@ -11,3 +11,11 @@ Executable Semantics-test
   main-is:           Test.hs
   default-language:  Haskell2010
   ghc-prof-options:  -auto-all
+
+library
+  Build-Depends:     base, libgraph, monads-tf
+  exposed-modules:   TraceSemantics
+  hs-source-dirs:    src
+  other-modules:     Context
+  default-language:  Haskell2010
+

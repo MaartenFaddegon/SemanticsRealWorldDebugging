@@ -5,7 +5,7 @@ import Prelude hiding (Right)
 import Context
 
 --------------------------------------------------------------------------------
--- Trace values.
+-- Tracing.
 
 data Value  = Right | Wrong       deriving (Show,Eq,Ord)
 type Record = (Label,Stack,Value)

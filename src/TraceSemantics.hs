@@ -4,14 +4,15 @@ import Control.Monad.State(State)
 import Prelude hiding (Right)
 import Context
 
-
 --------------------------------------------------------------------------------
--- Tracing.
+-- Tracing
 
-data Id = Root | Id Int
+type Id = Int
+
+data Parent = Root | ArgOf Id | ResOf Id
   deriving (Show,Eq)
 
-data Value  = Value { traceId :: Id, traceParent :: Id, traceValue :: String }
+data Value  = Value { traceId :: Id, traceParent :: Parent, traceValue :: String }
   deriving (Show)
 
 type Record = (Label,Stack,Value)
@@ -20,7 +21,13 @@ trace :: Record -> Trace Record -> Trace Record
 trace = (:)
 
 --------------------------------------------------------------------------------
--- Expressions.
+-- Trace post processing
+
+format :: Trace Record -> Trace Record
+format trc = trc
+
+--------------------------------------------------------------------------------
+-- Expressions
 
 data Expr = Const    Int
           | Lambda   Name Expr
@@ -28,13 +35,14 @@ data Expr = Const    Int
           | Var      Name
           | Let      (Name,Expr) Expr
           | ACC      Label Expr
-          | Observed Label Stack Id Expr
+          | Observed Label Stack Parent Expr
           deriving (Show,Eq)
 
 --------------------------------------------------------------------------------
--- The reduction rules.
+-- Reduction rules
 
-reduce :: Stack -> Trace Record -> Expr -> State (Context Expr) (Stack,Trace Record,ExprExc Expr)
+reduce :: Stack -> Trace Record -> Expr 
+       -> State (Context Expr) (Stack,Trace Record,ExprExc Expr)
 
 reduce stk trc (Const i) = 
   return (stk,trc,Expression (Const i))
@@ -43,16 +51,16 @@ reduce stk trc (Lambda x e) =
   return (stk,trc,Expression $ Lambda x e)
 
 reduce stk trc (ACC l e) =
-  evalUpto reduce (push l stk) trc (Observed l stk Root e)
+  eval reduce (push l stk) trc (Observed l stk Root e)
 
 reduce stk trc (Let (x,e1) e2) = do
   insertHeap x (stk,e1)
   reduce stk trc e2
 
 reduce stk trc orig@(Apply f x) = do
-  (stk_lam, trc_lam, e) <- evalUpto reduce stk trc f
+  (stk_lam, trc_lam, e) <- eval reduce stk trc f
   case e of 
-    Expression (Lambda y e) -> evalUpto reduce stk_lam trc_lam (subst y x e)
+    Expression (Lambda y e) -> eval reduce stk_lam trc_lam (subst y x e)
     Exception msg           -> return (stk_lam,trc_lam,Exception msg)
     _                       -> return (stk_lam,trc_lam,Exception "Apply non-Lambda?")
 
@@ -64,29 +72,28 @@ reduce stk trc (Var x) = do
     (stk',Expression (Lambda y e)) -> return (call stk stk',trc,Expression (Lambda y e))
     (stk',Expression e) -> do
       deleteHeap x
-      (stkv,trcv,v') <- evalUpto reduce stk' trc e
+      (stkv,trcv,v') <- eval reduce stk' trc e
       case v' of
         Exception msg -> return (stkv,trcv,Exception msg)
         Expression v  -> do
           insertHeap x (stkv,v)
-          evalUpto reduce stk trcv (Var x) -- Notice how we retain the trace but swap back the stack
+          -- Notice we retain the trace but swap back the stack:
+          eval reduce stk trcv (Var x) 
 
 reduce stk trc (Observed l s p e) = do
-  (stk',trc',e') <- evalUpto reduce stk trc e
+  (stk',trc',e') <- eval reduce stk trc e
   case e' of
     Exception msg           -> return (stk',trc',Exception msg)
     Expression (Const i)    -> do
       id <- getUniq
-      return (stk',trace (l,s,Value (Id id) p (show i)) trc',Expression (Const i))
+      return (stk',trace (l,s,Value id p (show i)) trc',Expression (Const i))
     Expression (Lambda x e) -> do
       id <- getUniq
       let x' = "_" ++ x; x'' = "__" ++ x
-          lRes = l ++ "-result"; lArg = l ++ "-argument"
-          innerLam = Lambda x (Observed lRes s (Id id) e)
-          body     = Let (x',Observed lArg stk (Id id) (Var x'')) 
-                         (Apply innerLam x')
-          trc''     = trace (l,s,Value (Id id) p "\\") trc'
-      evalUpto reduce stk' trc'' (Lambda x'' body)
+          body = Let (x',Observed l stk (ArgOf id) (Var x'')) 
+                     (Apply (Lambda x (Observed l s (ResOf id) e)) x')
+          trc''     = trace (l,s,Value id p "\\") trc'
+      eval reduce stk' trc'' (Lambda x'' body)
 
 --------------------------------------------------------------------------------
 -- Substituting variable names.
@@ -103,12 +110,11 @@ subst n m (Observed l s p e) = Observed l s p (subst n m e)
 sub :: Name -> Name -> Name -> Name
 sub n m n' = if n == n' then m else n'
 
-
 --------------------------------------------------------------------------------
 -- Examples.
 
--- eval  = evalE reduce
--- eval' = evalE' reduce
+run  = evalE reduce
+run' = evalE' reduce
 
 e1 = ACC "A" (Const 42)
 
