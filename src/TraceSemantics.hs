@@ -113,8 +113,8 @@ sub n m n' = if n == n' then m else n'
 --------------------------------------------------------------------------------
 -- Examples.
 
-run  = evalE reduce
-run' = evalE' reduce
+run  = evalWith  reduce
+run' = evalWith' reduce
 
 e1 = ACC "A" (Const 42)
 

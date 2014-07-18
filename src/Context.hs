@@ -87,13 +87,13 @@ context0 = Context { heap = heap0
                    , uniq = uniq0
                    }
 
-evalE' :: Show expr
+evalWith' :: Show expr
        => ReduceFun record expr -> expr -> (Stack,Trace record,ExprExc expr)
-evalE' reduce e = evalState f context0
+evalWith' reduce e = evalState f context0
   where f = eval reduce [] [] e
 
-evalE :: Show expr => ReduceFun record expr -> expr -> Trace record
-evalE reduce e = let (_,t,_) = evalE' reduce e in t
+evalWith :: Show expr => ReduceFun record expr -> expr -> Trace record
+evalWith reduce e = let (_,t,_) = evalWith' reduce e in t
 
 eval :: Show expr
          => ReduceFun record expr ->  Stack -> Trace record -> expr 
