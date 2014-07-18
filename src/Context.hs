@@ -1,4 +1,4 @@
-module Runtime where
+module Context where
 
 import Control.Monad.State
 import Data.Graph.Libgraph
