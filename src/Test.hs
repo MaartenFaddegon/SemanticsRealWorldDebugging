@@ -10,7 +10,7 @@ import Context
 -- Algorithmic debugging from a trace.
 
 faultyNodes :: Expr -> [Label]
-faultyNodes = getLabels . (findFaulty wrongCC mergeCC) . mkGraph . (evalE eval)
+faultyNodes = getLabels . (findFaulty wrongCC mergeCC) . mkGraph . (evalE reduce)
 
 wrongCC :: Vertex -> Bool
 wrongCC (Vertex rs) = foldl (\w r -> case r of (_,_,Wrong) -> True; _ -> w) False rs
@@ -73,7 +73,7 @@ instance Arbitrary Expr where
   arbitrary = sized gen_expr
 
 propValidExpr :: Expr -> Bool
-propValidExpr e = let (_,_,e') = (evalE' eval) e in e' == Expression Const
+propValidExpr e = let (_,_,e') = (evalE' reduce) e in e' == Expression Const
 
 propExact :: Expr -> Bool
 propExact e = faultyNodes e == faultyExprs e
@@ -88,7 +88,7 @@ propFoundFaulty :: Expr -> Bool
 propFoundFaulty e = faultyNodes e /= []
 
 propIsWrong :: Expr -> Bool
-propIsWrong e = case lookupT "toplevel" (evalE eval $ Observed "toplevel" [] e) of
+propIsWrong e = case lookupT "toplevel" (evalE reduce $ Observed "toplevel" [] e) of
   (Just Wrong) -> True
   _            -> False
 
@@ -127,33 +127,33 @@ expr4 = Let ("n", Const) (Var "n")
 test1 = propExact expr1
 
 -- Doesn't terminate:
-test2  = evalE eval $ Apply (Lambda "y" (Apply (                 (Lambda "z" ((Apply (Var "y") "z")))) "z")) "z"
+test2  = evalE reduce $ Apply (Lambda "y" (Apply (                 (Lambda "z" ((Apply (Var "y") "z")))) "z")) "z"
 
-test2b = evalE eval $ Apply (Lambda "y" (Apply (Let ("x",Const) (Lambda "z" ((Apply (Var "y") "z")))) "z")) "z"
+test2b = evalE reduce $ Apply (Lambda "y" (Apply (Let ("x",Const) (Lambda "z" ((Apply (Var "y") "z")))) "z")) "z"
 
 
-test2c = evalE eval $ Apply ((Apply (Let ("z",Apply Const "x") (Lambda "z" (Apply ((Apply ((Apply (Var "x") "x")) "y")) "y"))) "z")) "z"
+test2c = evalE reduce $ Apply ((Apply (Let ("z",Apply Const "x") (Lambda "z" (Apply ((Apply ((Apply (Var "x") "x")) "y")) "y"))) "z")) "z"
 
-test2d = evalE eval $ Apply (ACCCorrect "E" (Apply (Let ("z",Apply Const "x") (Lambda "z" (Apply (ACCCorrect "O" (Apply (ACCCorrect "D" (Apply (Var "x") "x")) "y")) "y"))) "z")) "z"
+test2d = evalE reduce $ Apply (ACCCorrect "E" (Apply (Let ("z",Apply Const "x") (Lambda "z" (Apply (ACCCorrect "O" (Apply (ACCCorrect "D" (Apply (Var "x") "x")) "y")) "y"))) "z")) "z"
 
 -- lookup failed?
 
 test3a = faultyNodes $ ACCFaulty "A" (ACCCorrect "B" Const)
-test3b = (display showGraph) . mkGraph . evalE eval $ ACCFaulty "A" (ACCCorrect "B" Const)
--- test3c = (display showGraph) . rmCycles . mkGraph . evalE eval $ ACCFaulty "L" (ACCFaulty "L" (Var "z"))
+test3b = (display showGraph) . mkGraph . evalE reduce $ ACCFaulty "A" (ACCCorrect "B" Const)
+-- test3c = (display showGraph) . rmCycles . mkGraph . evalE reduce $ ACCFaulty "L" (ACCFaulty "L" (Var "z"))
 
 e4 = ACCFaulty "O" (ACCCorrect "C" (Let ("y",Const) (ACCCorrect "R" (ACCCorrect "F" (Var "y")))))
 
-test4a = (display showGraph) . mkGraph . evalE eval $ e4
+test4a = (display showGraph) . mkGraph . evalE reduce $ e4
 
-test4b = evalE eval e4
+test4b = evalE reduce e4
 
 e5 = ACCFaulty "OUTER" (ACCCorrect "INNER" (Let ("x",Const) (Var "x")))
 
 e6 = ACCFaulty "A" (ACCCorrect "B" (ACCCorrect "C" (ACCFaulty "D" (Var "x"))))
 
-test = (display showGraph) . (dagify mergeCC) . mkGraph . evalE eval
-test' = (display showGraph) . mkGraph . evalE eval
+test = (display showGraph) . (dagify mergeCC) . mkGraph . evalE reduce
+test' = (display showGraph) . mkGraph . evalE reduce
 
 e7 = ACCFaulty "A" (ACCCorrect "B" (Apply (ACCFaulty "C" (Apply (Let ("z",Apply (Apply (Var "y") "x") "x") (Lambda "z" (ACCFaulty "D" (ACCFaulty "E" (Var "x"))))) "z")) "y"))
 

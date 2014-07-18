@@ -90,15 +90,15 @@ context0 = Context { heap = heap0
 evalE' :: Show expr
        => ReduceFun record expr -> expr -> (Stack,Trace record,ExprExc expr)
 evalE' reduce e = evalState f context0
-  where f = evalUpto reduce [] [] e
+  where f = eval reduce [] [] e
 
 evalE :: Show expr => ReduceFun record expr -> expr -> Trace record
 evalE reduce e = let (_,t,_) = evalE' reduce e in t
 
-evalUpto :: Show expr
+eval :: Show expr
          => ReduceFun record expr ->  Stack -> Trace record -> expr 
          -> State (Context expr) (Stack,Trace record,ExprExc expr)
-evalUpto reduce stk trc expr = do 
+eval reduce stk trc expr = do 
   n <- gets reductionCount
   modify $ \s -> s {reductionCount = n+1}
   if n > 500

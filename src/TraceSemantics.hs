@@ -71,7 +71,6 @@ reduce stk trc (Var x) = do
           insertHeap x (stkv,v)
           evalUpto reduce stk trcv (Var x) -- Notice how we retain the trace but swap back the stack
 
--- MF TODO: Ik denk dat alle gevallen hier behandeld moeten worden ipv de _ op het eind?
 reduce stk trc (Observed l s p e) = do
   (stk',trc',e') <- evalUpto reduce stk trc e
   case e' of
@@ -108,8 +107,8 @@ sub n m n' = if n == n' then m else n'
 --------------------------------------------------------------------------------
 -- Examples.
 
-eval   = evalE reduce
-eval' = evalE' reduce
+-- eval  = evalE reduce
+-- eval' = evalE' reduce
 
 e1 = ACC "A" (Const 42)
 
