@@ -2,7 +2,7 @@ module Context where
 
 import Control.Monad.State
 import Data.Graph.Libgraph
-
+import qualified Debug.Trace as Debug
 
 --------------------------------------------------------------------------------
 -- Stack handling: push and call.
@@ -35,12 +35,14 @@ span2 f = s f []
 --------------------------------------------------------------------------------
 -- The state.
 
-type ReduceFun expr = Stack -> Trace -> expr 
-                      -> State (Context expr) (Stack,Trace,ExprExc expr)
+type Trace record = [record]
+
+type ReduceFun record expr = Stack -> [record] -> expr 
+                      -> State (Context expr) (Stack,Trace record,ExprExc expr)
 
 data ExprExc expr = Exception String
                   | Expression expr
-                  deriving Eq
+                  deriving (Show,Eq)
 
 data Context expr = Context { heap        :: !(Heap expr)
                             , reductionCount :: !Int
@@ -49,21 +51,23 @@ data Context expr = Context { heap        :: !(Heap expr)
 estate0 :: Context expr
 estate0 = Context heap0 0
 
-evalE' :: ReduceFun expr -> expr -> (Stack,Trace,ExprExc expr)
-evalE' eval e = evalState f estate0
-  where f = evalUpto eval [] [] e
+evalE' :: Show expr
+       => ReduceFun record expr -> expr -> (Stack,Trace record,ExprExc expr)
+evalE' reduce e = evalState f estate0
+  where f = evalUpto reduce [] [] e
 
-evalE :: ReduceFun expr -> expr -> Trace
-evalE eval e = let (_,t,_) = evalE' eval e in t
+evalE :: Show expr => ReduceFun record expr -> expr -> Trace record
+evalE reduce e = let (_,t,_) = evalE' reduce e in t
 
-evalUpto :: ReduceFun expr ->  Stack -> Trace -> expr 
-         -> State (Context expr) (Stack,Trace,ExprExc expr)
-evalUpto eval stk trc expr = do 
+evalUpto :: Show expr
+         => ReduceFun record expr ->  Stack -> Trace record -> expr 
+         -> State (Context expr) (Stack,Trace record,ExprExc expr)
+evalUpto reduce stk trc expr = do 
   n <- gets reductionCount
   modify $ \s -> s {reductionCount = n+1}
   if n > 500
     then return (stk,trc,Exception "Giving up after 500 reductions.")
-    else eval stk trc expr
+    else reduce stk trc (Debug.trace ("reduce " ++ show expr) expr)
 
 --------------------------------------------------------------------------------
 -- Manipulating the heap.
@@ -84,17 +88,5 @@ lookupHeap :: Name -> State (Context expr) (Stack,ExprExc expr)
 lookupHeap x = do 
   me <- fmap (lookup x . heap) get
   case me of
-    Nothing      -> return ([], Exception "Lookup failed")
+    Nothing      -> return ([], Exception ("Lookup '" ++ x ++ "' failed"))
     Just (stk,e) -> return (stk,Expression e)
-
---------------------------------------------------------------------------------
--- Tracing.
---
--- A recorded value is Right or Wrong.
-
-data Value  = Right | Wrong       deriving (Show,Eq,Ord)
-type Record = (Label,Stack,Value)
-type Trace  = [Record]
-
-trace :: Record -> Trace -> Trace
-trace = (:)

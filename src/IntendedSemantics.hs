@@ -5,6 +5,15 @@ import Prelude hiding (Right)
 import Context
 
 --------------------------------------------------------------------------------
+-- Trace values.
+
+data Value  = Right | Wrong       deriving (Show,Eq,Ord)
+type Record = (Label,Stack,Value)
+
+trace :: Record -> Trace Record -> Trace Record
+trace = (:)
+
+--------------------------------------------------------------------------------
 -- Expressions.
 
 data Expr = Const
@@ -20,7 +29,7 @@ data Expr = Const
 --------------------------------------------------------------------------------
 -- The reduction rules.
 
-eval :: Stack -> Trace -> Expr -> State (Context Expr) (Stack,Trace,ExprExc Expr)
+eval :: Stack -> Trace Record -> Expr -> State (Context Expr) (Stack,Trace Record,ExprExc Expr)
 
 eval stk trc Const = 
   return (stk,trc,Expression Const)
@@ -35,7 +44,7 @@ eval stk trc (ACCFaulty l e)  =
   evalUpto eval (push l stk) (trace (l,stk,Wrong) trc) e
 
 eval stk trc (Let (x,e1) e2) = do
-  insertHeap x (stk,e2)
+  insertHeap x (stk,e1)
   eval stk trc e2
 
 -- We added a special case for weird testcases that try to apply non-Lambda

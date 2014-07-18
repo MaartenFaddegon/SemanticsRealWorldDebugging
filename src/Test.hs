@@ -21,15 +21,15 @@ getLabels = foldl accLabels []
 
 data Vertex = Vertex [Record] deriving (Eq,Ord)
 
-mkGraph :: Trace -> Graph Vertex
+mkGraph :: Trace Record -> Graph Vertex
 mkGraph trace = mapGraph (\r -> Vertex [r]) (mkGraph' trace)
 
-mkGraph' :: Trace -> Graph Record
+mkGraph' :: Trace Record -> Graph Record
 mkGraph' trace = Graph (last trace)
                        trace
                        (foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
 
-arcsFrom :: Record -> Trace -> [Arc Record]
+arcsFrom :: Record -> Trace Record -> [Arc Record]
 arcsFrom src = (map (Arc src)) . (filter (src `couldDependOn`))
 
 couldDependOn :: Record -> Record -> Bool
@@ -92,7 +92,7 @@ propIsWrong e = case lookupT "toplevel" (evalE eval $ Observed "toplevel" [] e) 
   (Just Wrong) -> True
   _            -> False
 
-lookupT :: Label -> Trace -> Maybe Value
+lookupT :: Label -> Trace Record -> Maybe Value
 lookupT l t = lookup l (zip ls vs)
   where (ls,_,vs) = unzip3 t
 
