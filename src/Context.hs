@@ -33,6 +33,28 @@ span2 f = s f []
           | otherwise = (pre,xs,ys)
 
 --------------------------------------------------------------------------------
+-- Manipulating the heap.
+
+type Name = String
+type Heap expr = [(Name,(Stack,expr))]
+
+heap0 :: Heap expr
+heap0 = []
+
+insertHeap :: Name -> (Stack,expr) -> State (Context expr) ()
+insertHeap x e = modify $ \s -> s{heap = (x,e) : (heap s)}
+
+deleteHeap :: Name -> State (Context expr) ()
+deleteHeap x = modify $ \s -> s{heap = filter ((/= x) . fst) (heap s)}
+
+lookupHeap :: Name -> State (Context expr) (Stack,ExprExc expr)
+lookupHeap x = do 
+  me <- fmap (lookup x . heap) get
+  case me of
+    Nothing      -> return ([], Exception ("Lookup '" ++ x ++ "' failed"))
+    Just (stk,e) -> return (stk,Expression e)
+
+--------------------------------------------------------------------------------
 -- The state.
 
 type Trace record = [record]
@@ -69,24 +91,4 @@ evalUpto reduce stk trc expr = do
     then return (stk,trc,Exception "Giving up after 500 reductions.")
     else reduce stk trc (Debug.trace ("reduce " ++ show expr) expr)
 
---------------------------------------------------------------------------------
--- Manipulating the heap.
 
-type Name = String
-type Heap expr = [(Name,(Stack,expr))]
-
-heap0 :: Heap expr
-heap0 = []
-
-insertHeap :: Name -> (Stack,expr) -> State (Context expr) ()
-insertHeap x e = modify $ \s -> s{heap = (x,e) : (heap s)}
-
-deleteHeap :: Name -> State (Context expr) ()
-deleteHeap x = modify $ \s -> s{heap = filter ((/= x) . fst) (heap s)}
-
-lookupHeap :: Name -> State (Context expr) (Stack,ExprExc expr)
-lookupHeap x = do 
-  me <- fmap (lookup x . heap) get
-  case me of
-    Nothing      -> return ([], Exception ("Lookup '" ++ x ++ "' failed"))
-    Just (stk,e) -> return (stk,Expression e)
