@@ -24,13 +24,24 @@ trace = (:)
 -- Trace post processing
 
 format :: Trace Record -> Trace Record
-format trc = trc
+format trc = ((filter isRoot) . (map $ replace trc)) trc
+  where isRoot (_,_,v)  = traceParent v == Root
+
+replace :: Trace Record -> Record -> Record
+replace trc (l,s,v) 
+  = if traceValue v == "\\" 
+    then (l,s,v{ traceValue = "\\" ++ res ++ " -> " ++ arg })
+    else (l,s,v)
+  where (res,arg) = children trc (traceId v)
 
 children :: Trace Record -> Id -> (String, String)
 children trc id = (f (ArgOf id),f (ResOf id))
   where f p = case filter (\(_,_,v) -> traceParent v == p) trc of
                 []        -> "_"
-                [(_,_,v)] -> traceValue v
+                [r] -> (traceValue . thd) (replace trc r)
+
+thd :: (a,b,c) -> c
+thd (_,_,z) = z
 
 --------------------------------------------------------------------------------
 -- Expressions
@@ -119,7 +130,7 @@ sub n m n' = if n == n' then m else n'
 --------------------------------------------------------------------------------
 -- Examples.
 
-run  = evalWith  reduce
+run  = format . (evalWith  reduce)
 run' = evalWith' reduce
 
 e1 = ACC "A" (Const 42)
