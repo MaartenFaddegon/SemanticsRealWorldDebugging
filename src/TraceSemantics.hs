@@ -3,6 +3,8 @@ module TraceSemantics where
 import Control.Monad.State(State)
 import Prelude hiding (Right)
 import Context
+import Debug
+import Data.Graph.Libgraph(Graph,display,showWith)
 
 --------------------------------------------------------------------------------
 -- Tracing
@@ -21,11 +23,12 @@ trace = (:)
 --------------------------------------------------------------------------------
 -- Trace post processing
 
-format :: Trace Value -> Trace Value
-format trc = ((filter isRoot) . (map $ replace trc)) trc
-  where isRoot (_,_,v)  = traceParent v == Root
+simplify :: Trace Value -> Trace String
+simplify trc = map toString . filter isRoot . map (replace trc) $ trc
+  where isRoot (_,_,v)   = traceParent v == Root
+        toString (l,s,v) = (l,s,traceValue v)
 
-replace :: Trace Value -> (Record Value) -> (Record Value)
+replace :: Trace Value -> Record Value -> Record Value
 replace trc (l,s,v) 
   = if traceValue v == "\\" 
     then (l,s,v{ traceValue = "\\" ++ res ++ " -> " ++ arg })
@@ -128,7 +131,13 @@ sub n m n' = if n == n' then m else n'
 --------------------------------------------------------------------------------
 -- Examples.
 
-run  = format . (evalWith  reduce)
+shw :: Graph (Vertex String) -> String
+shw g = showWith g showVertex showArc
+  where showVertex = show . (map thd)
+        showArc _  = ""
+
+run :: Expr -> IO ()
+run  = (display shw) . mkGraph . simplify . (evalWith  reduce)
 run' = evalWith' reduce
 
 e1 = ACC "A" (Const 42)
