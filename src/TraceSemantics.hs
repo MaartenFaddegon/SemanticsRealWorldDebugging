@@ -15,26 +15,24 @@ data Parent = Root | ArgOf Id | ResOf Id
 data Value  = Value { traceId :: Id, traceParent :: Parent, traceValue :: String }
   deriving (Show)
 
-type Record = (Label,Stack,Value)
-
-trace :: Record -> Trace Record -> Trace Record
+trace :: Record Value -> Trace Value -> Trace Value
 trace = (:)
 
 --------------------------------------------------------------------------------
 -- Trace post processing
 
-format :: Trace Record -> Trace Record
+format :: Trace Value -> Trace Value
 format trc = ((filter isRoot) . (map $ replace trc)) trc
   where isRoot (_,_,v)  = traceParent v == Root
 
-replace :: Trace Record -> Record -> Record
+replace :: Trace Value -> (Record Value) -> (Record Value)
 replace trc (l,s,v) 
   = if traceValue v == "\\" 
     then (l,s,v{ traceValue = "\\" ++ res ++ " -> " ++ arg })
     else (l,s,v)
   where (res,arg) = children trc (traceId v)
 
-children :: Trace Record -> Id -> (String, String)
+children :: Trace Value -> Id -> (String, String)
 children trc id = (f (ArgOf id),f (ResOf id))
   where f p = case filter (\(_,_,v) -> traceParent v == p) trc of
                 []        -> "_"
@@ -58,8 +56,8 @@ data Expr = Const    Int
 --------------------------------------------------------------------------------
 -- Reduction rules
 
-reduce :: Stack -> Trace Record -> Expr 
-       -> State (Context Expr) (Stack,Trace Record,ExprExc Expr)
+reduce :: Stack -> Trace Value -> Expr 
+       -> State (Context Expr) (Stack,Trace Value,ExprExc Expr)
 
 reduce stk trc (Const i) = 
   return (stk,trc,Expression (Const i))

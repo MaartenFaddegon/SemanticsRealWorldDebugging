@@ -8,6 +8,7 @@ import Data.Graph.Libgraph
 
 type Label = String
 type Stack = [Label]
+type Record value = (Label,Stack,value)
 
 push :: Label -> Stack -> Stack
 push l s
@@ -67,10 +68,10 @@ uniq0 = 1
 --------------------------------------------------------------------------------
 -- The state.
 
-type Trace record = [record]
+type Trace value = [(Record value)]
 
-type ReduceFun record expr = Stack -> [record] -> expr 
-                      -> State (Context expr) (Stack,Trace record,ExprExc expr)
+type ReduceFun value expr = Stack -> [(Record value)] -> expr 
+                      -> State (Context expr) (Stack,Trace value,ExprExc expr)
 
 data ExprExc expr = Exception String
                   | Expression expr
@@ -88,16 +89,16 @@ context0 = Context { heap = heap0
                    }
 
 evalWith' :: Show expr
-       => ReduceFun record expr -> expr -> (Stack,Trace record,ExprExc expr)
+       => ReduceFun value expr -> expr -> (Stack,Trace value,ExprExc expr)
 evalWith' reduce e = evalState f context0
   where f = eval reduce [] [] e
 
-evalWith :: Show expr => ReduceFun record expr -> expr -> Trace record
+evalWith :: Show expr => ReduceFun value expr -> expr -> Trace value
 evalWith reduce e = let (_,t,_) = evalWith' reduce e in t
 
 eval :: Show expr
-         => ReduceFun record expr ->  Stack -> Trace record -> expr 
-         -> State (Context expr) (Stack,Trace record,ExprExc expr)
+         => ReduceFun value expr ->  Stack -> Trace value -> expr 
+         -> State (Context expr) (Stack,Trace value,ExprExc expr)
 eval reduce stk trc expr = do 
   n <- gets reductionCount
   modify $ \s -> s {reductionCount = n+1}

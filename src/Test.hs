@@ -5,6 +5,7 @@ import Prelude hiding (Right)
 import Test.QuickCheck
 import Data.Graph.Libgraph
 import Context
+import Debug
 
 --------------------------------------------------------------------------------
 -- Algorithmic debugging from a trace.
@@ -12,30 +13,15 @@ import Context
 faultyNodes :: Expr -> [Label]
 faultyNodes = getLabels . (findFaulty wrongCC mergeCC) . mkGraph . (evalWith reduce)
 
-wrongCC :: Vertex -> Bool
+wrongCC :: Vertex Value -> Bool
 wrongCC (Vertex rs) = foldl (\w r -> case r of (_,_,Wrong) -> True; _ -> w) False rs
 
 getLabels = foldl accLabels []
   where accLabels acc v = acc ++ getLabels' v
         getLabels' (Vertex rs) = map (\(l,_,_) -> l) rs
 
-data Vertex = Vertex [Record] deriving (Eq,Ord)
 
-mkGraph :: Trace Record -> Graph Vertex
-mkGraph trace = mapGraph (\r -> Vertex [r]) (mkGraph' trace)
-
-mkGraph' :: Trace Record -> Graph Record
-mkGraph' trace = Graph (last trace)
-                       trace
-                       (foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
-
-arcsFrom :: Record -> Trace Record -> [Arc Record]
-arcsFrom src = (map (Arc src)) . (filter (src `couldDependOn`))
-
-couldDependOn :: Record -> Record -> Bool
-couldDependOn (l,s,_) (_,t,_) = push l s == t
-
-mergeCC :: [Vertex] -> Vertex
+mergeCC :: [Vertex Value] -> Vertex Value
 mergeCC ws = foldl merge' (Vertex []) ws
   where merge' (Vertex qs) (Vertex rs) = Vertex (qs ++ rs)
 
@@ -92,7 +78,7 @@ propIsWrong e = case lookupT "toplevel" (evalWith reduce $ Observed "toplevel" [
   (Just Wrong) -> True
   _            -> False
 
-lookupT :: Label -> Trace Record -> Maybe Value
+lookupT :: Label -> Trace Value -> Maybe Value
 lookupT l t = lookup l (zip ls vs)
   where (ls,_,vs) = unzip3 t
 
@@ -108,10 +94,10 @@ main = quickCheckWith args (\e -> propValidExpr e ==> propFaultyIfWrong e)
 
 ---
 
-showGraph :: Graph Vertex -> String
+showGraph :: Graph (Vertex Value) -> String
 showGraph g = showWith g showVertex noShow 
 
-showVertex :: Vertex -> String
+showVertex :: (Vertex Value) -> String
 showVertex (Vertex rs) = show rs
 
 noShow :: Arc a -> String

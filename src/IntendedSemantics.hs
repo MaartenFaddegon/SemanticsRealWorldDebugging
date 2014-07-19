@@ -8,9 +8,8 @@ import Context
 -- Tracing.
 
 data Value  = Right | Wrong       deriving (Show,Eq,Ord)
-type Record = (Label,Stack,Value)
 
-trace :: Record -> Trace Record -> Trace Record
+trace :: (Record Value) -> Trace Value -> Trace Value
 trace = (:)
 
 --------------------------------------------------------------------------------
@@ -29,7 +28,7 @@ data Expr = Const
 --------------------------------------------------------------------------------
 -- The reduction rules.
 
-reduce :: Stack -> Trace Record -> Expr -> State (Context Expr) (Stack,Trace Record,ExprExc Expr)
+reduce :: Stack -> Trace Value -> Expr -> State (Context Expr) (Stack,Trace Value,ExprExc Expr)
 
 reduce stk trc Const = 
   return (stk,trc,Expression Const)
