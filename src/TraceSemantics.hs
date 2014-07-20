@@ -133,7 +133,8 @@ sub n m n' = if n == n' then m else n'
 
 shw :: Graph (Vertex String) -> String
 shw g = showWith g showVertex showArc
-  where showVertex = show . (map thd)
+  where showVertex = (foldl (++) "") . (map showRecord)
+        showRecord (lbl,stk,str) = lbl ++ ": " ++ str ++ " (with stack " ++ show stk ++ ")\n"
         showArc _  = ""
 
 run :: Expr -> IO ()
