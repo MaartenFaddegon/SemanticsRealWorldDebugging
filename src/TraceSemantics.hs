@@ -131,15 +131,20 @@ sub n m n' = if n == n' then m else n'
 --------------------------------------------------------------------------------
 -- Examples.
 
-shw :: Graph (Vertex String) -> String
-shw g = showWith g showVertex showArc
-  where showVertex = (foldl (++) "") . (map showRecord)
+type CompGraph = Graph (Vertex String)
+
+tracedEval :: Expr -> CompGraph
+tracedEval = mkGraph . simplify . (evalWith  reduce)
+
+disp :: Expr -> IO ()
+disp = (display shw) . tracedEval
+  where shw :: CompGraph -> String
+        shw g = showWith g showVertex showArc
+        showVertex = (foldl (++) "") . (map showRecord)
         showRecord (lbl,stk,str) = lbl ++ ": " ++ str ++ " (with stack " ++ show stk ++ ")\n"
         showArc _  = ""
 
-run :: Expr -> IO ()
-run  = (display shw) . mkGraph . simplify . (evalWith  reduce)
-run' = evalWith' reduce
+-- run' = evalWith' reduce
 
 e1 = ACC "A" (Const 42)
 
@@ -154,18 +159,20 @@ e4 = Let ("i", (Const 42))
 e5 = Let ("i", (Const 42)) 
          (Apply (ACC "lam" (Lambda "x" (Const 1))) "i")
 
-e6 = Let ("i", (Const 42)) 
-         ( Let ("id",ACC "ID" (Lambda "x" (Const 1)))
-               ( Apply 
-                 ( Apply 
-                   ( ACC "H" 
-                     ( Lambda "f" 
-                       ( Lambda "x"
-                         ( Apply (Var "f") "x"
-                         )
-                       )
-                     )
-                   ) "id"
-                 ) "i"
-               )
-         )
+e6 =  ACC "main"
+      ( Let ("i", (Const 42)) 
+            ( Let ("id",ACC "id" (Lambda "x" (Const 1)))
+                  ( Apply 
+                    ( Apply 
+                      ( ACC "h" 
+                        ( Lambda "f" 
+                          ( Lambda "x"
+                            ( Apply (Var "f") "x"
+                            )
+                          )
+                        )
+                      ) "id"
+                    ) "i"
+                  )
+            )
+      )
