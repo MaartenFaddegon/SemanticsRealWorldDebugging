@@ -152,3 +152,19 @@ e4 = Let ("i", (Const 42))
 
 e5 = Let ("i", (Const 42)) 
          (Apply (ACC "lam" (Lambda "x" (Const 1))) "i")
+
+e6 = Let ("i", (Const 42)) 
+         ( Let ("id",ACC "ID" (Lambda "x" (Const 1)))
+               ( Apply 
+                 ( Apply 
+                   ( ACC "H" 
+                     ( Lambda "f" 
+                       ( Lambda "x"
+                         ( Apply (Var "f") "x"
+                         )
+                       )
+                     )
+                   ) "id"
+                 ) "i"
+               )
+         )

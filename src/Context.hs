@@ -68,7 +68,7 @@ uniq0 = 1
 --------------------------------------------------------------------------------
 -- The state.
 
-type Trace value = [(Record value)]
+type Trace value = [Record value]
 
 type ReduceFun value expr = Stack -> [(Record value)] -> expr 
                       -> State (Context expr) (Stack,Trace value,ExprExc expr)

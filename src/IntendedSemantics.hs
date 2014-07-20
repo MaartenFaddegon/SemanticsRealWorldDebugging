@@ -7,9 +7,9 @@ import Context
 --------------------------------------------------------------------------------
 -- Tracing.
 
-data Value  = Right | Wrong       deriving (Show,Eq,Ord)
+data Judgement  = Right | Wrong       deriving (Show,Eq,Ord)
 
-trace :: (Record Value) -> Trace Value -> Trace Value
+trace :: (Record Judgement) -> Trace Judgement -> Trace Judgement
 trace = (:)
 
 --------------------------------------------------------------------------------
@@ -28,7 +28,7 @@ data Expr = Const
 --------------------------------------------------------------------------------
 -- The reduction rules.
 
-reduce :: Stack -> Trace Value -> Expr -> State (Context Expr) (Stack,Trace Value,ExprExc Expr)
+reduce :: Stack -> Trace Judgement -> Expr -> State (Context Expr) (Stack,Trace Judgement,ExprExc Expr)
 
 reduce stk trc Const = 
   return (stk,trc,Expression Const)
