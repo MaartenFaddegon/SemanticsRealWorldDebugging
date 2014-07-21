@@ -11,7 +11,7 @@ import Debug
 -- Algorithmic debugging from a trace.
 
 faultyNodes :: Expr -> [Label]
-faultyNodes = getLabels . (findFaulty wrongCC mergeCC) . mkGraph . (evalWith reduce)
+faultyNodes = getLabels . (findFaulty wrongCC mergeCC) . snd . mkGraph . (evalWith reduce)
 
 wrongCC :: Vertex Judgement -> Bool
 wrongCC = foldl (\w r -> case r of (_,_,Wrong) -> True; _ -> w) False
@@ -57,8 +57,9 @@ gen_expr n = oneof [ elements [Const]
 instance Arbitrary Expr where
   arbitrary = sized gen_expr
 
+-- MF TODO: allow any redex that doesn't throw an expression?
 propValidExpr :: Expr -> Bool
-propValidExpr e = let (_,_,e') = (evalWith' reduce) e in e' == Expression Const
+propValidExpr e = fst (evalWith reduce e) == Expression Const
 
 propExact :: Expr -> Bool
 propExact e = faultyNodes e == faultyExprs e
@@ -72,8 +73,10 @@ subset xs ys = foldr ((&&) . (`elem` ys)) True xs
 propFoundFaulty :: Expr -> Bool
 propFoundFaulty e = faultyNodes e /= []
 
+
+-- MF TODO: We could also find the root by searching for the record with a [] stack.
 propIsWrong :: Expr -> Bool
-propIsWrong e = case lookupT "toplevel" (evalWith reduce $ Observed "toplevel" [] e) of
+propIsWrong e = case lookupT "toplevel" (snd (evalWith reduce $ Observed "toplevel" [] e)) of
   (Just Wrong) -> True
   _            -> False
 

@@ -88,16 +88,10 @@ context0 = Context { heap = heap0
                    , uniq = uniq0
                    }
 
-evalWith' :: Show expr
-       => ReduceFun value expr -> expr -> (Stack,Trace value,ExprExc expr)
-evalWith' reduce e = evalState f context0
-  where f = eval reduce [] [] e
+evalWith :: ReduceFun value expr -> expr -> (ExprExc expr,Trace value)
+evalWith reduce expr = let (_,trc,reduct) = evalState (eval reduce [] [] expr) context0 in (reduct,trc)
 
-evalWith :: Show expr => ReduceFun value expr -> expr -> Trace value
-evalWith reduce e = let (_,t,_) = evalWith' reduce e in t
-
-eval :: Show expr
-         => ReduceFun value expr ->  Stack -> Trace value -> expr 
+eval :: ReduceFun value expr ->  Stack -> Trace value -> expr 
          -> State (Context expr) (Stack,Trace value,ExprExc expr)
 eval reduce stk trc expr = do 
   n <- gets reductionCount

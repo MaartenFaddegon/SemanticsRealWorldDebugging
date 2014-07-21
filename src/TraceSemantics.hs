@@ -24,7 +24,7 @@ trace = (:)
 -- Trace post processing
 
 
-mkEquations trc = map toString . filter isRoot . map (replace True trc) $ trc
+mkEquations (reduct,trc) = (reduct,map toString . filter isRoot . map (replace True trc) $ trc)
   where isRoot (_,_,val)   = traceParent val == Root
         toString (lbl,stk,val) = (lbl,stk,traceValue val)
 
@@ -137,11 +137,11 @@ sub n m n' = if n == n' then m else n'
 
 type CompGraph = Graph (Vertex String)
 
-tracedEval :: Expr -> CompGraph
-tracedEval = mkGraph . mkEquations . (evalWith  reduce)
+tracedEval :: Expr -> (ExprExc Expr,CompGraph)
+tracedEval = mkGraph . mkEquations . (evalWith reduce)
 
 disp :: Expr -> IO ()
-disp = (display shw) . tracedEval
+disp = (display shw) . snd . tracedEval
   where shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
         showVertex = (foldl (++) "") . (map showRecord)
