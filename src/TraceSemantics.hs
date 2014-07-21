@@ -23,23 +23,27 @@ trace = (:)
 --------------------------------------------------------------------------------
 -- Trace post processing
 
-simplify :: Trace Value -> Trace String
-simplify trc = map toString . filter isRoot . map (replace trc) $ trc
-  where isRoot (_,_,v)   = traceParent v == Root
-        toString (l,s,v) = (l,s,traceValue v)
 
-replace :: Trace Value -> Record Value -> Record Value
-replace trc (l,s,v) 
-  = if traceValue v == "\\" 
-    then (l,s,v{ traceValue = "\\" ++ res ++ " -> " ++ arg })
-    else (l,s,v)
-  where (res,arg) = children trc (traceId v)
+mkEquations trc = map toString . filter isRoot . map (replace True trc) $ trc
+  where isRoot (_,_,val)   = traceParent val == Root
+        toString (lbl,stk,val) = (lbl,stk,traceValue val)
+
+ 
+replace top trc (lbl,stk,val) 
+  = if traceValue val == "\\" && top
+      then (lbl,stk,val{ traceValue = lbl ++ " " ++ arg ++ " = " ++ res })
+    else if traceValue val == "\\"
+      then (lbl,stk,val{ traceValue = "\\" ++ arg ++ " -> " ++ res })
+    else if top
+      then (lbl,stk,val{ traceValue = lbl ++ " = " ++ traceValue val })
+    else (lbl,stk,val)
+  where (res,arg) = children trc (traceId val)
 
 children :: Trace Value -> Id -> (String, String)
 children trc id = (f (ArgOf id),f (ResOf id))
-  where f p = case filter (\(_,_,v) -> traceParent v == p) trc of
-                []        -> "_"
-                [r] -> (traceValue . thd) (replace trc r)
+  where f p = case filter (\(_,_,val) -> traceParent val == p) trc of
+                []  -> "_"
+                [r] -> (traceValue . thd) (replace False trc r)
 
 thd :: (a,b,c) -> c
 thd (_,_,z) = z
@@ -68,9 +72,6 @@ reduce stk trc (Const i) =
 reduce stk trc (Lambda x e) = 
   return (stk,trc,Expression $ Lambda x e)
 
-reduce stk trc (ACC l e) =
-  eval reduce (push l stk) trc (Observed l stk Root e)
-
 reduce stk trc (Let (x,e1) e2) = do
   insertHeap x (stk,e1)
   reduce stk trc e2
@@ -81,6 +82,9 @@ reduce stk trc orig@(Apply f x) = do
     Expression (Lambda y e) -> eval reduce stk_lam trc_lam (subst y x e)
     Exception msg           -> return (stk_lam,trc_lam,Exception msg)
     _                       -> return (stk_lam,trc_lam,Exception "Apply non-Lambda?")
+
+reduce stk trc (ACC l e) =
+  eval reduce (push l stk) trc (Observed l stk Root e)
 
 reduce stk trc (Var x) = do
   r <- lookupHeap x
@@ -134,14 +138,15 @@ sub n m n' = if n == n' then m else n'
 type CompGraph = Graph (Vertex String)
 
 tracedEval :: Expr -> CompGraph
-tracedEval = mkGraph . simplify . (evalWith  reduce)
+tracedEval = mkGraph . mkEquations . (evalWith  reduce)
 
 disp :: Expr -> IO ()
 disp = (display shw) . tracedEval
   where shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
         showVertex = (foldl (++) "") . (map showRecord)
-        showRecord (lbl,stk,str) = lbl ++ ": " ++ str ++ " (with stack " ++ show stk ++ ")\n"
+        showRecord = thd
+        -- showRecord (lbl,stk,str) = lbl ++ ": " ++ str ++ " (with stack " ++ show stk ++ ")\n"
         showArc _  = ""
 
 -- run' = evalWith' reduce
