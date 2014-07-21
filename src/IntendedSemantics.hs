@@ -1,6 +1,6 @@
 module IntendedSemantics where
 
-import Control.Monad.State(State)
+import Control.Monad.State(State,gets)
 import Prelude hiding (Right)
 import Context
 
@@ -28,60 +28,68 @@ data Expr = Const
 --------------------------------------------------------------------------------
 -- The reduction rules.
 
-reduce :: Stack -> Trace Judgement -> Expr -> State (Context Expr) (Stack,Trace Judgement,ExprExc Expr)
+reduce :: Trace Judgement -> Expr -> State (Context Expr) (Trace Judgement,ExprExc Expr)
 
-reduce stk trc Const = 
-  return (stk,trc,Expression Const)
+reduce trc Const = 
+  return (trc,Expression Const)
 
-reduce stk trc (Lambda x e) = 
-  return (stk,trc,Expression $ Lambda x e)
+reduce trc (Lambda x e) = 
+  return (trc,Expression $ Lambda x e)
 
-reduce stk trc (ACCCorrect l e) =
-  eval reduce (push l stk) trc (Observed l stk e)
+reduce trc (ACCCorrect l e) = do
+  stk <- gets stack
+  doPush l
+  eval reduce trc (Observed l stk e)
 
-reduce stk trc (ACCFaulty l e)  =
-  eval reduce (push l stk) (trace (l,stk,Wrong) trc) e
+reduce trc (ACCFaulty l e) = do
+  stk <- gets stack
+  eval reduce (trace (l,stk,Wrong) trc) e
 
-reduce stk trc (Let (x,e1) e2) = do
+reduce trc (Let (x,e1) e2) = do
+  stk <- gets stack
   insertHeap x (stk,e1)
-  reduce stk trc e2
+  eval reduce trc e2
 
--- We added a special case for weird testcases that try to apply non-Lambda
--- expressions. And we break out of endless loops by returning a Const when we
--- detect such a loop.
-reduce stk trc orig@(Apply f x) = do
-  (stk_lam, trc_lam, e) <- eval reduce stk trc f
+reduce trc orig@(Apply f x) = do
+  (trc_lam, e) <- eval reduce trc f
   case e of 
-    Expression (Lambda y e) -> eval reduce stk_lam trc_lam (subst y x e)
-    Exception msg           -> return (stk_lam,trc_lam,Exception msg)
-    _                       -> return (stk_lam,trc_lam,Exception "Apply non-Lambda?")
+    Expression (Lambda y e) -> eval reduce trc_lam (subst y x e)
+    Exception msg           -> return (trc_lam,Exception msg)
+    _                       -> return (trc_lam,Exception "Apply non-Lambda?")
 
-reduce stk trc (Var x) = do
+reduce trc (Var x) = do
   r <- lookupHeap x
   case r of
-    (stk',Exception msg)           -> return (stk',trc,Exception msg)
-    (stk',Expression Const)        -> return (stk',trc,Expression Const)
-    (stk',Expression (Lambda y e)) -> return (call stk stk',trc,Expression (Lambda y e))
-    (stk',Expression e) -> do
+    (stk,Exception msg) -> do
+      setStack stk
+      return (trc,Exception msg)
+    (stk,Expression Const) -> do
+      setStack stk
+      return (trc,Expression Const)
+    (stk,Expression (Lambda y e)) -> do
+      doCall stk
+      return (trc,Expression (Lambda y e))
+    (stk,Expression e) -> do
       deleteHeap x
-      (stkv,trcv,v') <- eval reduce stk' trc e
+      setStack stk
+      (trcv,v') <- eval reduce trc e
       case v' of
-        Exception msg -> return (stkv,trcv,Exception msg)
+        Exception msg -> return (trcv,Exception msg)
         Expression v  -> do
+          stkv <- gets stack
           insertHeap x (stkv,v)
-          eval reduce stk trcv (Var x) -- Notice how we retain the trace but swap back the stack
+          eval reduce trcv (Var x)
 
--- MF TODO: Ik denk dat alle gevallen hier behandeld moeten worden ipv de _ op het eind?
-reduce stk trc (Observed l s e) = do
-  case e of Const              -> return (stk,trace (l,s,Right) trc,Expression Const)
-            (ACCFaulty l' e')  -> eval reduce stk (trace (l,s,Wrong) trc) (ACCFaulty l' e')
-            (ACCCorrect l' e') -> eval reduce stk trc (ACCCorrect l' (Observed l s e'))
-            (Let (x,e1) e2)    -> eval reduce stk trc (Let (x,e1) (Observed l s e2))
+reduce trc (Observed l s e) = do
+  case e of Const              -> return (trace (l,s,Right) trc,Expression Const)
+            (ACCFaulty l' e')  -> eval reduce (trace (l,s,Wrong) trc) (ACCFaulty l' e')
+            (ACCCorrect l' e') -> eval reduce trc (ACCCorrect l' (Observed l s e'))
+            (Let (x,e1) e2)    -> eval reduce trc (Let (x,e1) (Observed l s e2))
             _ -> do
-              (stk',trc',e') <- eval reduce stk trc e
+              (trc',e') <- eval reduce trc e
               case e' of
-                Exception msg  -> return (stk',trc',Exception msg)
-                Expression e'' -> eval reduce stk' trc' (Observed l s e'')
+                Exception msg  -> return (trc',Exception msg)
+                Expression e'' -> eval reduce trc' (Observed l s e'')
 
 --------------------------------------------------------------------------------
 -- Substituting variable names.

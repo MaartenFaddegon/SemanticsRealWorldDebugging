@@ -1,6 +1,6 @@
 module TraceSemantics where
 
-import Control.Monad.State(State,modify)
+import Control.Monad.State(State,gets)
 import Prelude hiding (Right)
 import Context
 import Debug
@@ -33,7 +33,7 @@ replace top trc (lbl,stk,val)
   = if traceValue val == "\\" && top
       then (lbl,stk,val{ traceValue = lbl ++ " " ++ arg ++ " = " ++ res })
     else if traceValue val == "\\"
-      then (lbl,stk,val{ traceValue = "\\" ++ arg ++ " -> " ++ res })
+      then (lbl,stk,val{ traceValue = "(\\" ++ arg ++ " -> " ++ res ++ ")"})
     else if top
       then (lbl,stk,val{ traceValue = lbl ++ " = " ++ traceValue val })
     else (lbl,stk,val)
@@ -63,66 +63,69 @@ data Expr = Const    Int
 --------------------------------------------------------------------------------
 -- Reduction rules
 
-reduce :: Stack -> Trace Value -> Expr 
-       -> State (Context Expr) (Stack,Trace Value,ExprExc Expr)
+reduce :: Trace Value -> Expr -> State (Context Expr) (Trace Value,ExprExc Expr)
 
-reduce stk trc (Const i) = 
-  return (stk,trc,Expression (Const i))
+reduce trc (Const i) = 
+  return (trc,Expression (Const i))
 
-reduce stk trc (Lambda x e) = 
-  return (stk,trc,Expression $ Lambda x e)
+reduce trc (Lambda x e) = 
+  return (trc,Expression $ Lambda x e)
 
-reduce stk trc (Let (x,e1) e2) = do
+reduce trc (Let (x,e1) e2) = do
+  stk <- gets stack
   insertHeap x (stk,e1)
-  reduce stk trc e2
+  reduce trc e2
 
-reduce stk trc orig@(Apply f x) = do
-  (stk_lam, trc_lam, e) <- eval reduce stk trc f
+reduce trc orig@(Apply f x) = do
+  (trc_lam, e) <- eval reduce trc f
   case e of 
-    Expression (Lambda y e) -> eval reduce stk_lam trc_lam (subst y x e)
-    Exception msg           -> return (stk_lam,trc_lam,Exception msg)
-    _                       -> return (stk_lam,trc_lam,Exception "Apply non-Lambda?")
+    Expression (Lambda y e) -> eval reduce trc_lam (subst y x e)
+    Exception msg           -> return (trc_lam,Exception msg)
+    _                       -> return (trc_lam,Exception "Apply non-Lambda?")
 
-reduce stk trc (ACC l e) = do
-  modify $ \s -> s {stack = push l (stack s)}
-  eval reduce (push l stk) trc (Observed l stk Root e)
+reduce trc (ACC l e) = do
+  stk <- gets stack
+  doPush l
+  eval reduce trc (Observed l stk Root e)
 
-reduce stk trc (Var x) = do
+reduce trc (Var x) = do
   r <- lookupHeap x
   case r of
-    (stk',Exception msg) -> do
-      setStack stk'
-      return (stk',trc,Exception msg)
-    (stk',Expression (Const i)) -> do         -- MF TODO: I think this one is not necessary
-      setStack stk'
-      return (stk',trc,Expression (Const i))
-    (stk',Expression (Lambda y e)) -> do
-      doCall stk'
-      return (call stk stk',trc,Expression (Lambda y e))
-    (stk',Expression e) -> do
+    (stk,Exception msg) -> do
+      setStack stk
+      return (trc,Exception msg)
+    (stk,Expression (Const i)) -> do         -- MF TODO: I think this one is not necessary
+      setStack stk
+      return (trc,Expression (Const i))
+    (stk,Expression (Lambda y e)) -> do
+      doCall stk
+      return (trc,Expression (Lambda y e))
+    (stk,Expression e) -> do
       deleteHeap x
-      (stkv,trcv,v') <- eval reduce stk' trc e
+      setStack stk
+      (trcv,v') <- eval reduce trc e
       case v' of
-        Exception msg -> return (stkv,trcv,Exception msg)
+        Exception msg -> return (trcv,Exception msg)
         Expression v  -> do
+          stkv <- gets stack
           insertHeap x (stkv,v)
-          -- Notice we retain the trace but swap back the stack:
-          eval reduce stk trcv (Var x) 
+          eval reduce trcv (Var x) 
 
-reduce stk trc (Observed l s p e) = do
-  (stk',trc',e') <- eval reduce stk trc e
+reduce trc (Observed l s p e) = do
+  stk <- gets stack
+  (trc',e') <- eval reduce trc e
   case e' of
-    Exception msg           -> return (stk',trc',Exception msg)
+    Exception msg           -> return (trc',Exception msg)
     Expression (Const i)    -> do
       id <- getUniq
-      return (stk',trace (l,s,Value id p (show i)) trc',Expression (Const i))
+      return (trace (l,s,Value id p (show i)) trc',Expression (Const i))
     Expression (Lambda x e) -> do
       id <- getUniq
       let x' = "_" ++ x; x'' = "__" ++ x
           body = Let (x',Observed l stk (ArgOf id) (Var x'')) 
                      (Apply (Lambda x (Observed l s (ResOf id) e)) x')
           trc''     = trace (l,s,Value id p "\\") trc'
-      eval reduce stk' trc'' (Lambda x'' body)
+      eval reduce trc'' (Lambda x'' body)
 
 --------------------------------------------------------------------------------
 -- Substituting variable names.

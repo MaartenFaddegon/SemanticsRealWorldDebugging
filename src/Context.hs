@@ -74,8 +74,7 @@ getUniq = do
 
 type Trace value = [Record value]
 
-type ReduceFun value expr = Stack -> [(Record value)] -> expr 
-                      -> State (Context expr) (Stack,Trace value,ExprExc expr)
+type ReduceFun value expr = [(Record value)] -> expr -> State (Context expr) (Trace value,ExprExc expr)
 
 data ExprExc expr = Exception String
                   | Expression expr
@@ -94,14 +93,15 @@ context0 = Context { heap           = []
                    , reductionCount = 0
                    }
 
+-- MF TODO: silly to swap reduct and trace here
 evalWith :: ReduceFun value expr -> expr -> (ExprExc expr,Trace value)
-evalWith reduce expr = let (_,trc,reduct) = evalState (eval reduce [] [] expr) context0 in (reduct,trc)
+evalWith reduce expr = let (trc,reduct) = evalState (eval reduce [] expr) context0 in (reduct,trc)
 
-eval :: ReduceFun value expr ->  Stack -> Trace value -> expr 
-         -> State (Context expr) (Stack,Trace value,ExprExc expr)
-eval reduce stk trc expr = do 
+eval :: ReduceFun value expr -> Trace value -> expr 
+         -> State (Context expr) (Trace value,ExprExc expr)
+eval reduce trc expr = do 
   n <- gets reductionCount
   modify $ \s -> s {reductionCount = n+1}
   if n > 500
-    then return (stk,trc,Exception "Giving up after 500 reductions.")
-    else reduce stk trc expr
+    then return (trc,Exception "Giving up after 500 reductions.")
+    else reduce trc expr
