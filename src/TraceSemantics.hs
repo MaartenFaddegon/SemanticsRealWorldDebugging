@@ -166,7 +166,7 @@ e5 = Let ("i", (Const 42))
 
 e6 =  ACC "main"
       ( Let ("i", (Const 42)) 
-            ( Let ("id",ACC "id" (Lambda "x" (Const 1)))
+            ( Let ("id",ACC "id" (Lambda "y" (Var "y")))
                   ( Apply 
                     ( Apply 
                       ( ACC "h" 
