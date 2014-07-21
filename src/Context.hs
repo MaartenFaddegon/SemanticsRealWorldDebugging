@@ -81,21 +81,13 @@ data ExprExc expr = Exception String
                   deriving (Show,Eq)
 
 data Context expr = Context { heap           :: !(Heap expr)
-                            , uniq           :: !Int
                             , stack          :: Stack
+                            , uniq           :: !Int
                             , reductionCount :: !Int
                             }
 
-context0 :: Context expr
-context0 = Context { heap           = []
-                   , stack          = []
-                   , uniq           = 0
-                   , reductionCount = 0
-                   }
-
--- MF TODO: silly to swap reduct and trace here
-evalWith :: ReduceFun value expr -> expr -> (ExprExc expr,Trace value)
-evalWith reduce expr = let (trc,reduct) = evalState (eval reduce [] expr) context0 in (reduct,trc)
+evalWith :: ReduceFun value expr -> expr -> (Trace value,ExprExc expr)
+evalWith reduce expr = evalState (eval reduce [] expr) (Context [] [] 0 0)
 
 eval :: ReduceFun value expr -> Trace value -> expr 
          -> State (Context expr) (Trace value,ExprExc expr)

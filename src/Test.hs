@@ -59,7 +59,7 @@ instance Arbitrary Expr where
 
 -- MF TODO: allow any redex that doesn't throw an expression?
 propValidExpr :: Expr -> Bool
-propValidExpr e = fst (evalWith reduce e) == Expression Const
+propValidExpr e = snd (evalWith reduce e) == Expression Const
 
 propExact :: Expr -> Bool
 propExact e = faultyNodes e == faultyExprs e
@@ -76,7 +76,7 @@ propFoundFaulty e = faultyNodes e /= []
 
 -- MF TODO: We could also find the root by searching for the record with a [] stack.
 propIsWrong :: Expr -> Bool
-propIsWrong e = case lookupT "toplevel" (snd (evalWith reduce $ Observed "toplevel" [] e)) of
+propIsWrong e = case lookupT "toplevel" (fst (evalWith reduce $ Observed "toplevel" [] e)) of
   (Just Wrong) -> True
   _            -> False
 

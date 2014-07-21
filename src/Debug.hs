@@ -4,8 +4,8 @@ import Context
 
 type Vertex value = [Record value]
 
-mkGraph :: (expr,Trace value) -> (expr,Graph (Vertex value))
-mkGraph (reduct,trace) = (reduct,mapGraph (\r->[r]) (mkGraph' trace))
+mkGraph :: (Trace value,expr) -> (expr,Graph (Vertex value))
+mkGraph (trc,reduct) = (reduct,mapGraph (\r->[r]) (mkGraph' trc))
 
 mkGraph' :: Trace value -> Graph (Record value)
 mkGraph' trace = Graph (head roots)

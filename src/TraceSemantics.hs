@@ -24,7 +24,7 @@ trace = (:)
 -- Trace post processing
 
 
-mkEquations (reduct,trc) = (reduct,map toString . filter isRoot . map (replace True trc) $ trc)
+mkEquations (trc,reduct) = (map toString . filter isRoot . map (replace True trc) $ trc,reduct)
   where isRoot (_,_,val)   = traceParent val == Root
         toString (lbl,stk,val) = (lbl,stk,traceValue val)
 
