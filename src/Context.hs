@@ -10,10 +10,19 @@ type Label = String
 type Stack = [Label]
 type Record value = (Label,Stack,value)
 
+setStack :: Stack -> State (Context expr) ()
+setStack stk = modify $ \s -> s {stack = stk}
+
+doPush :: Label -> State (Context expr) ()
+doPush l = modify $ \s -> s {stack = push l (stack s)}
+
 push :: Label -> Stack -> Stack
 push l s
   | l `elem` s = dropWhile (/= l) s
   | otherwise  = l : s
+
+doCall :: Stack -> State (Context expr) ()
+doCall sLam = modify $ \s -> s {stack = call (stack s) sLam}
 
 call :: Stack -> Stack -> Stack
 call sApp sLam = sApp ++ sLam'
@@ -38,9 +47,6 @@ span2 f = s f []
 type Name = String
 type Heap expr = [(Name,(Stack,expr))]
 
-heap0 :: Heap expr
-heap0 = []
-
 insertHeap :: Name -> (Stack,expr) -> State (Context expr) ()
 insertHeap x e = modify $ \s -> s{heap = (x,e) : (heap s)}
 
@@ -63,8 +69,6 @@ getUniq = do
   modify $ \cxt -> cxt { uniq = i + 1 }
   return i
 
-uniq0 = 1
-
 --------------------------------------------------------------------------------
 -- The state.
 
@@ -78,14 +82,16 @@ data ExprExc expr = Exception String
                   deriving (Show,Eq)
 
 data Context expr = Context { heap           :: !(Heap expr)
-                            , reductionCount :: !Int
                             , uniq           :: !Int
+                            , stack          :: Stack
+                            , reductionCount :: !Int
                             }
 
 context0 :: Context expr
-context0 = Context { heap = heap0 
+context0 = Context { heap           = []
+                   , stack          = []
+                   , uniq           = 0
                    , reductionCount = 0
-                   , uniq = uniq0
                    }
 
 evalWith :: ReduceFun value expr -> expr -> (ExprExc expr,Trace value)

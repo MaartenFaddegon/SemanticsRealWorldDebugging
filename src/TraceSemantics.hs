@@ -1,6 +1,6 @@
 module TraceSemantics where
 
-import Control.Monad.State(State)
+import Control.Monad.State(State,modify)
 import Prelude hiding (Right)
 import Context
 import Debug
@@ -83,15 +83,22 @@ reduce stk trc orig@(Apply f x) = do
     Exception msg           -> return (stk_lam,trc_lam,Exception msg)
     _                       -> return (stk_lam,trc_lam,Exception "Apply non-Lambda?")
 
-reduce stk trc (ACC l e) =
+reduce stk trc (ACC l e) = do
+  modify $ \s -> s {stack = push l (stack s)}
   eval reduce (push l stk) trc (Observed l stk Root e)
 
 reduce stk trc (Var x) = do
   r <- lookupHeap x
   case r of
-    (stk',Exception msg)           -> return (stk',trc,Exception msg)
-    (stk',Expression (Const i))    -> return (stk',trc,Expression (Const i))
-    (stk',Expression (Lambda y e)) -> return (call stk stk',trc,Expression (Lambda y e))
+    (stk',Exception msg) -> do
+      setStack stk'
+      return (stk',trc,Exception msg)
+    (stk',Expression (Const i)) -> do         -- MF TODO: I think this one is not necessary
+      setStack stk'
+      return (stk',trc,Expression (Const i))
+    (stk',Expression (Lambda y e)) -> do
+      doCall stk'
+      return (call stk stk',trc,Expression (Lambda y e))
     (stk',Expression e) -> do
       deleteHeap x
       (stkv,trcv,v') <- eval reduce stk' trc e
