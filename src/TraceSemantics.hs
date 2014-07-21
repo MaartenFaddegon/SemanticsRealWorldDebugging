@@ -1,6 +1,6 @@
 module TraceSemantics where
 
-import Control.Monad.State(State,gets)
+import Control.Monad.State(gets)
 import Prelude hiding (Right)
 import Context
 import Debug
@@ -17,8 +17,8 @@ data Parent = Root | ArgOf Id | ResOf Id
 data Value  = Value { traceId :: Id, traceParent :: Parent, traceValue :: String }
   deriving (Show)
 
-trace :: Record Value -> Trace Value -> Trace Value
-trace = (:)
+-- trace :: Record Value -> Trace Value -> Trace Value
+-- trace = (:)
 
 --------------------------------------------------------------------------------
 -- Trace post processing
@@ -63,7 +63,7 @@ data Expr = Const    Int
 --------------------------------------------------------------------------------
 -- Reduction rules
 
-reduce :: Trace Value -> Expr -> State (Context Expr) (Trace Value,ExprExc Expr)
+reduce :: ReduceRule Value Expr
 
 reduce trc (Const i) = 
   return (trc,Expression (Const i))
@@ -76,12 +76,12 @@ reduce trc (Let (x,e1) e2) = do
   insertHeap x (stk,e1)
   reduce trc e2
 
-reduce trc orig@(Apply f x) = do
-  (trc_lam, e) <- eval reduce trc f
+reduce trc (Apply f x) = do
+  (trc', e) <- eval reduce trc f
   case e of 
-    Expression (Lambda y e) -> eval reduce trc_lam (subst y x e)
-    Exception msg           -> return (trc_lam,Exception msg)
-    _                       -> return (trc_lam,Exception "Apply non-Lambda?")
+    Expression (Lambda y e) -> eval reduce trc' (subst y x e)
+    Exception msg           -> return (trc',Exception msg)
+    _                       -> return (trc',Exception "Apply non-Lambda?")
 
 reduce trc (ACC l e) = do
   stk <- gets stack

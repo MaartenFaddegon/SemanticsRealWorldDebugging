@@ -9,8 +9,8 @@ import Context
 
 data Judgement  = Right | Wrong       deriving (Show,Eq,Ord)
 
-trace :: (Record Judgement) -> Trace Judgement -> Trace Judgement
-trace = (:)
+-- trace :: (Record Judgement) -> Trace Judgement -> Trace Judgement
+-- trace = (:)
 
 --------------------------------------------------------------------------------
 -- Expressions.
@@ -28,7 +28,7 @@ data Expr = Const
 --------------------------------------------------------------------------------
 -- The reduction rules.
 
-reduce :: Trace Judgement -> Expr -> State (Context Expr) (Trace Judgement,ExprExc Expr)
+reduce :: ReduceRule Judgement Expr
 
 reduce trc Const = 
   return (trc,Expression Const)
@@ -80,6 +80,8 @@ reduce trc (Var x) = do
           insertHeap x (stkv,v)
           eval reduce trcv (Var x)
 
+-- MF TODO: similar changes to that of the TraceSemantics Observe rule need to
+-- be made here.
 reduce trc (Observed l s e) = do
   case e of Const              -> return (trace (l,s,Right) trc,Expression Const)
             (ACCFaulty l' e')  -> eval reduce (trace (l,s,Wrong) trc) (ACCFaulty l' e')

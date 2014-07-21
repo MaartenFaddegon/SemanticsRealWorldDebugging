@@ -8,12 +8,11 @@ import Data.Graph.Libgraph
 
 type Label = String
 type Stack = [Label]
-type Record value = (Label,Stack,value)
 
-setStack :: Stack -> State (Context expr) ()
+setStack :: Stack -> Cxt expr ()
 setStack stk = modify $ \s -> s {stack = stk}
 
-doPush :: Label -> State (Context expr) ()
+doPush :: Label -> Cxt expr ()
 doPush l = modify $ \s -> s {stack = push l (stack s)}
 
 push :: Label -> Stack -> Stack
@@ -21,7 +20,7 @@ push l s
   | l `elem` s = dropWhile (/= l) s
   | otherwise  = l : s
 
-doCall :: Stack -> State (Context expr) ()
+doCall :: Stack -> Cxt expr ()
 doCall sLam = modify $ \s -> s {stack = call (stack s) sLam}
 
 call :: Stack -> Stack -> Stack
@@ -47,13 +46,13 @@ span2 f = s f []
 type Name = String
 type Heap expr = [(Name,(Stack,expr))]
 
-insertHeap :: Name -> (Stack,expr) -> State (Context expr) ()
+insertHeap :: Name -> (Stack,expr) -> Cxt expr ()
 insertHeap x e = modify $ \s -> s{heap = (x,e) : (heap s)}
 
-deleteHeap :: Name -> State (Context expr) ()
+deleteHeap :: Name -> Cxt expr ()
 deleteHeap x = modify $ \s -> s{heap = filter ((/= x) . fst) (heap s)}
 
-lookupHeap :: Name -> State (Context expr) (Stack,ExprExc expr)
+lookupHeap :: Name -> Cxt expr (Stack,ExprExc expr)
 lookupHeap x = do 
   me <- fmap (lookup x . heap) get
   case me of
@@ -63,21 +62,24 @@ lookupHeap x = do
 --------------------------------------------------------------------------------
 -- Tracing help.
 
-getUniq :: State (Context expr) Int
+getUniq :: Cxt expr Int
 getUniq = do
   i <- gets uniq
   modify $ \cxt -> cxt { uniq = i + 1 }
   return i
 
+trace :: Record value -> Trace value -> Trace value
+trace = (:)
+
 --------------------------------------------------------------------------------
 -- The state.
 
 type Trace value = [Record value]
+type Record value = (Label,Stack,value)
 
-type ReduceFun value expr = [(Record value)] -> expr -> State (Context expr) (Trace value,ExprExc expr)
+type ReduceRule value expr = Trace value -> expr -> Cxt expr (Trace value,ExprExc expr)
 
-data ExprExc expr = Exception String
-                  | Expression expr
+data ExprExc expr = Exception String | Expression expr
                   deriving (Show,Eq)
 
 data Context expr = Context { heap           :: !(Heap expr)
@@ -86,11 +88,12 @@ data Context expr = Context { heap           :: !(Heap expr)
                             , reductionCount :: !Int
                             }
 
-evalWith :: ReduceFun value expr -> expr -> (Trace value,ExprExc expr)
+type Cxt expr res = State (Context expr) res
+
+evalWith :: ReduceRule value expr -> expr -> (Trace value,ExprExc expr)
 evalWith reduce expr = evalState (eval reduce [] expr) (Context [] [] 0 0)
 
-eval :: ReduceFun value expr -> Trace value -> expr 
-         -> State (Context expr) (Trace value,ExprExc expr)
+eval :: ReduceRule value expr -> Trace value -> expr -> Cxt expr (Trace value,ExprExc expr)
 eval reduce trc expr = do 
   n <- gets reductionCount
   modify $ \s -> s {reductionCount = n+1}
