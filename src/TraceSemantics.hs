@@ -2,9 +2,9 @@ module TraceSemantics where
 
 import Control.Monad.State(gets)
 import Prelude hiding (Right)
+import Data.Graph.Libgraph(Graph,display,showWith)
 import Context
 import Debug
-import Data.Graph.Libgraph(Graph,display,showWith)
 
 --------------------------------------------------------------------------------
 -- Tracing
@@ -17,13 +17,10 @@ data Parent = Root | ArgOf Id | ResOf Id
 data Value  = Value { traceId :: Id, traceParent :: Parent, traceValue :: String }
   deriving (Show)
 
--- trace :: Record Value -> Trace Value -> Trace Value
--- trace = (:)
-
 --------------------------------------------------------------------------------
 -- Trace post processing
 
-
+mkEquations :: (Trace Value, e) -> (Trace String, e)
 mkEquations (trc,reduct) = (map toString . filter isRoot . map (replace True trc) $ trc,reduct)
   where isRoot (_,_,val)   = traceParent val == Root
         toString (lbl,stk,val) = (lbl,stk,traceValue val)
@@ -45,8 +42,6 @@ children trc id = (f (ArgOf id),f (ResOf id))
                 []  -> "_"
                 [r] -> (traceValue . thd) (replace False trc r)
 
-thd :: (a,b,c) -> c
-thd (_,_,z) = z
 
 --------------------------------------------------------------------------------
 -- Expressions

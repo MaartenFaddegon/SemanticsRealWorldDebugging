@@ -71,6 +71,9 @@ getUniq = do
 trace :: Record value -> Trace value -> Trace value
 trace = (:)
 
+thd :: (a,b,c) -> c
+thd (_,_,z) = z
+
 --------------------------------------------------------------------------------
 -- The state.
 

@@ -2,15 +2,21 @@ module IntendedSemantics where
 
 import Control.Monad.State(State,gets)
 import Prelude hiding (Right)
+import Data.Graph.Libgraph(Graph,display,showWith)
 import Context
+import Debug
 
 --------------------------------------------------------------------------------
 -- Tracing.
 
 data Judgement  = Right | Wrong       deriving (Show,Eq,Ord)
 
--- trace :: (Record Judgement) -> Trace Judgement -> Trace Judgement
--- trace = (:)
+--------------------------------------------------------------------------------
+-- Trace post processing (only for displaying, not used for QuickChecking)
+
+mkEquations :: (Trace Judgement, e) -> (Trace String, e)
+mkEquations (trc,reduct) = (map toString trc, reduct)
+  where toString (lbl,stk,jmt) = (lbl,stk,lbl ++ " = " ++ show jmt)
 
 --------------------------------------------------------------------------------
 -- Expressions.
@@ -43,6 +49,7 @@ reduce trc (ACCCorrect l e) = do
 
 reduce trc (ACCFaulty l e) = do
   stk <- gets stack
+  doPush l
   eval reduce (trace (l,stk,Wrong) trc) e
 
 reduce trc (Let (x,e1) e2) = do
@@ -107,3 +114,28 @@ subst n m (ACCFaulty l e)  = ACCFaulty l (subst n m e)
 
 sub :: Name -> Name -> Name -> Name
 sub n m n' = if n == n' then n' else m
+
+--------------------------------------------------------------------------------
+-- Examples.
+
+type CompGraph = Graph (Vertex String)
+
+tracedEval :: Expr -> (ExprExc Expr,CompGraph)
+tracedEval = mkGraph . mkEquations . (evalWith reduce)
+
+disp :: Expr -> IO ()
+disp redex = do
+  let (reduct,compgraph) = tracedEval redex
+  (display shw) compgraph
+  print reduct
+
+  where shw :: CompGraph -> String
+        shw g = showWith g showVertex showArc
+        showVertex = (foldl (++) "") . (map showRecord)
+        -- showRecord = thd
+        showRecord (lbl,stk,str) = str ++ " (with stack " ++ show stk ++ ")\n"
+        showArc _  = ""
+
+e1 = ACCFaulty "Z" (ACCFaulty "U" (ACCCorrect "Z" (ACCCorrect "N" Const)))
+
+e2 = Let ("x",ACCCorrect "let-x" Const) (ACCFaulty "in" (Var "x"))
