@@ -3,6 +3,8 @@ module Context where
 import Control.Monad.State
 import Data.Graph.Libgraph
 
+import qualified Debug.Trace as Debug
+
 --------------------------------------------------------------------------------
 -- Stack handling: push and call.
 
@@ -93,13 +95,15 @@ data Context expr = Context { heap           :: !(Heap expr)
 
 type Cxt expr res = State (Context expr) res
 
-evalWith :: ReduceRule value expr -> expr -> (Trace value,ExprExc expr)
+evalWith :: Show expr
+         => ReduceRule value expr -> expr -> (Trace value,ExprExc expr)
 evalWith reduce expr = evalState (eval reduce [] expr) (Context [] [] 0 0)
 
-eval :: ReduceRule value expr -> Trace value -> expr -> Cxt expr (Trace value,ExprExc expr)
+eval :: Show expr =>
+        ReduceRule value expr -> Trace value -> expr -> Cxt expr (Trace value,ExprExc expr)
 eval reduce trc expr = do 
   n <- gets reductionCount
   modify $ \s -> s {reductionCount = n+1}
   if n > 500
     then return (trc,Exception "Giving up after 500 reductions.")
-    else reduce trc expr
+    else reduce trc (Debug.trace (show n ++ ": " ++ show expr) expr)

@@ -73,10 +73,8 @@ subset xs ys = foldr ((&&) . (`elem` ys)) True xs
 propFoundFaulty :: Expr -> Bool
 propFoundFaulty e = faultyNodes e /= []
 
-
--- MF TODO: We could also find the root by searching for the record with a [] stack.
 propIsWrong :: Expr -> Bool
-propIsWrong e = case lookupT "toplevel" (fst (evalWith reduce $ Observed "toplevel" [] e)) of
+propIsWrong e = case lookupT "root" (fst (evalWith reduce e)) of
   (Just Wrong) -> True
   _            -> False
 
@@ -86,7 +84,10 @@ lookupT l t = lookup l (zip ls vs)
 
 propFaultyIfWrong e = propIsWrong e ==> propFoundFaulty e
 
-main = quickCheckWith args (\e -> propValidExpr e ==> propFaultyIfWrong e)
+sound e = propValidExpr e' ==> propFaultyIfWrong e'
+  where e' = ACCCorrect "root" e
+
+main = quickCheckWith args sound
   where args = Args { replay          = Nothing
                     , maxSuccess      = 100000  -- number of tests
                     , maxDiscardRatio = 100
