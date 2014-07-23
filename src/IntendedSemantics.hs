@@ -138,4 +138,4 @@ disp redex = do
 
 e1 = ACCFaulty "Z" (ACCFaulty "U" (ACCCorrect "Z" (ACCCorrect "N" Const)))
 
-e2 = Let ("x",ACCCorrect "let-x" Const) (ACCFaulty "in" (Var "x"))
+e2 = Let ("x",ACCCorrect "letx" Const) (ACCFaulty "in" (Var "x"))
