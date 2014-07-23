@@ -64,11 +64,16 @@ lookupHeap x = do
 --------------------------------------------------------------------------------
 -- Tracing help.
 
-getUniq :: Cxt expr Int
+type Id = Int
+
+getUniq :: Cxt expr Id
 getUniq = do
   i <- gets uniq
   modify $ \cxt -> cxt { uniq = i + 1 }
   return i
+
+data Parent = Root | ArgOf Id | ResOf Id
+  deriving (Show,Eq)
 
 trace :: Record value -> Trace value -> Trace value
 trace = (:)

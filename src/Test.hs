@@ -28,7 +28,7 @@ mergeCC ws = foldl (++) [] ws
 -- List of faulty expressions (static analysis).
 
 faultyExprs :: Expr -> [Label]
-faultyExprs Const             = []
+faultyExprs (Const _)         = []
 faultyExprs (Lambda _ e)      = faultyExprs e
 faultyExprs (Apply e _)       = faultyExprs e
 faultyExprs (Var _)           = []
@@ -40,12 +40,12 @@ faultyExprs (ACCFaulty l e)   = l : faultyExprs e
 -- Tests.
 
 gen_expr :: Int -> Gen Expr
-gen_expr 0 = elements [Const]
-gen_expr n = oneof [ elements [Const]
-                   , liftM2 Lambda      gen_name gen_expr'
-                   , liftM2 Apply       gen_expr' gen_name
-                   , liftM  Var         gen_name
-                   , liftM3 mkLet       gen_name gen_expr' gen_expr'
+gen_expr 0 = elements [Const Right]
+gen_expr n = oneof [ elements [Const Right]
+                   , liftM2 Lambda     gen_name gen_expr'
+                   , liftM2 Apply      gen_expr' gen_name
+                   , liftM  Var        gen_name
+                   , liftM3 mkLet      gen_name gen_expr' gen_expr'
                    , liftM2 ACCCorrect gen_label gen_expr'
                    , liftM2 ACCFaulty  gen_label gen_expr'
                    ]
@@ -57,9 +57,9 @@ gen_expr n = oneof [ elements [Const]
 instance Arbitrary Expr where
   arbitrary = sized gen_expr
 
--- MF TODO: allow any redex that doesn't throw an expression?
+-- MF TODO: should we really allow any redex that doesn't throw an expression?
 propValidExpr :: Expr -> Bool
-propValidExpr e = snd (evalWith reduce e) == Expression Const
+propValidExpr e = case snd (evalWith reduce e) of Expression _ -> True; _ -> False
 
 propExact :: Expr -> Bool
 propExact e = faultyNodes e == faultyExprs e

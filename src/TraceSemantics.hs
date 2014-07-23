@@ -9,11 +9,6 @@ import Debug
 --------------------------------------------------------------------------------
 -- Tracing
 
-type Id = Int
-
-data Parent = Root | ArgOf Id | ResOf Id
-  deriving (Show,Eq)
-
 data Value  = Value { traceId :: Id, traceParent :: Parent, traceValue :: String }
   deriving (Show)
 
