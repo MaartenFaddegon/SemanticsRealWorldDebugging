@@ -83,7 +83,6 @@ reduce trc (Var x) = do
         Expression v  -> do
           stkv <- gets stack
           insertHeap x (stkv,v)
-          setStack stk
           eval reduce trcv (Var x) 
 
 reduce trc (ACC l e) = do

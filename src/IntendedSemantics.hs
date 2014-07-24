@@ -7,7 +7,7 @@ import Context
 import Debug
 
 --------------------------------------------------------------------------------
--- Tracing.
+-- Tracing
 
 data Judgement  = Right | Wrong       deriving (Show,Eq,Ord)
 
@@ -90,7 +90,10 @@ reduce trc (Var x) = do
         Expression v  -> do
           stkv <- gets stack
           insertHeap x (stkv,v)
-          setStack stk
+          -- MF TODO: Need to check this (here and for TraceSemantics). I think
+          -- that Simon Marlow reverts back to stk here. But that certainly
+          -- leads to weird stacks. Try e3 for example.
+          -- setStack stk
           eval reduce trcv (Var x)
 
 reduce trc (ACCCorrect l e) = do
@@ -185,3 +188,5 @@ e3 = ACCCorrect "A" (ACCCorrect "B"((Let ("z",ACCCorrect "C" (Lambda "y" (ACCCor
 
 e3' = Let ("z",ACCCorrect "C" (Lambda "y" (ACCCorrect "lam" (Const Right)))) 
           (Apply (Var "z") "z")
+
+e4 = Apply (ACCCorrect "N" (Let ("z",Let ("y",Var "y") (ACCCorrect "C" (Lambda "z" (ACCFaulty "N" (Const Right))))) (ACCCorrect "F" (ACCFaulty "V" (ACCCorrect "V" (Var "z")))))) "z"
