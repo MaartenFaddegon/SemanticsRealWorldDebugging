@@ -3,7 +3,7 @@ module Context where
 import Control.Monad.State
 import Data.Graph.Libgraph
 
-import qualified Debug.Trace as Debug
+-- import qualified Debug.Trace as Debug
 
 --------------------------------------------------------------------------------
 -- Stack handling: push and call.
@@ -93,7 +93,7 @@ data ExprExc expr = Exception String | Expression expr
                   deriving (Show,Eq)
 
 data Context expr = Context { heap           :: !(Heap expr)
-                            , stack          :: Stack
+                            , stack          :: !Stack
                             , uniq           :: !Int
                             , reductionCount :: !Int
                             }
@@ -111,4 +111,5 @@ eval reduce trc expr = do
   modify $ \s -> s {reductionCount = n+1}
   if n > 500
     then return (trc,Exception "Giving up after 500 reductions.")
-    else reduce trc (Debug.trace (show n ++ ": " ++ show expr) expr)
+    else reduce trc expr
+    -- else reduce trc (Debug.trace (show n ++ ": " ++ show expr) expr)

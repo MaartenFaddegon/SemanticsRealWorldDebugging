@@ -5,7 +5,6 @@ import Prelude hiding (Right)
 import Data.Graph.Libgraph(Graph,display,showWith,findFaulty)
 import Context
 import Debug
-import qualified Debug.Trace as Debug
 
 --------------------------------------------------------------------------------
 -- Tracing.
@@ -134,7 +133,7 @@ reduce trc (Var x) = do
 reduce trc (Observed l s p e) = do
   stk <- gets stack
   (trc',e') <- eval reduce trc e
-  case (Debug.trace ("* Observed redex reduces to " ++ show e') e') of
+  case e' of
     Exception msg -> 
       return (trc',Exception msg)
     Expression (Const jmt) -> do

@@ -11,7 +11,8 @@ import Debug
 -- Algorithmic debugging from a trace.
 
 faultyNodes :: Expr -> [Label]
-faultyNodes = getLabels . (findFaulty wrongCC mergeCC) . snd . mkGraph . (evalWith reduce)
+faultyNodes = getLabels . (findFaulty wrongCC mergeCC) . snd . mkGraph 
+                        . mkEquations . (evalWith reduce)
 
 wrongCC :: Vertex Judgement -> Bool
 wrongCC = foldl (\w r -> case r of (_,_,Wrong) -> True; _ -> w) False
@@ -74,9 +75,9 @@ propFoundFaulty :: Expr -> Bool
 propFoundFaulty e = faultyNodes e /= []
 
 propIsWrong :: Expr -> Bool
-propIsWrong e = case lookupT "root" (fst (evalWith reduce e)) of
-  (Just Wrong) -> True
-  _            -> False
+propIsWrong e = case snd (evalWith reduce e) of
+  (Expression (Const Wrong)) -> True
+  _                          -> False
 
 lookupT :: Label -> Trace Judgement -> Maybe Judgement
 lookupT l t = lookup l (zip ls vs)
