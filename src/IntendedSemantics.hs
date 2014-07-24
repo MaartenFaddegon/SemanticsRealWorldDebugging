@@ -11,38 +11,28 @@ import Debug
 
 data Judgement  = Right | Wrong       deriving (Show,Eq,Ord)
 
-data Value  = Value { traceId :: Id, traceParent :: Parent, traceValue :: Judgement }
-  deriving (Show)
-
 --------------------------------------------------------------------------------
--- Trace post processing (only for displaying, not used for QuickChecking)
+-- Trace post processing
 
+-- To render graphs
 mkEquations' :: (Trace Judgement, e) -> (Trace String, e)
 mkEquations' (trc,reduct) = (map toString trc, reduct)
-  where toString (lbl,stk,jmt) = (lbl,stk,lbl ++ " = " ++ show jmt)
+  where toString rec = rec {recordValue = (recordLabel rec) ++ " = " 
+                                        ++ (show $ recordValue rec)}
 
-mkEquations :: (Trace Value, e) -> (Trace Judgement, e)
-mkEquations (trc,reduct) = (map toJudgement . filter isRoot . map (replace trc) $ trc,reduct)
-  where isRoot (_,_,val)          = traceParent val == Root
-        toJudgement (lbl,stk,val) = (lbl,stk,traceValue val)
+-- To quickcheck
+mkEquations :: (Trace Judgement, e) -> (Trace Judgement, e)
+mkEquations (trc,reduct) = (filter isRoot . map (successors trc merge) $ trc,reduct)
+  where isRoot = (== Root) . recordParent
 
-replace :: Trace Value -> Record Value -> Record Value
-replace trc (lbl,stk,val)
-  = (lbl,stk,val{traceValue = jmt})
-    where jms = map (traceValue . thd) (children trc (traceId val))
-          jmt = foldl or (traceValue val) jms
-          or Wrong _ = Wrong
-          or _ Wrong = Wrong
-          or _ _     = Right
+merge :: Record Judgement -> Maybe (Record Judgement) -> Maybe (Record Judgement)
+      -> Record Judgement
+merge rec arg res = rec{recordValue=(recordValue rec) `or` (jmt arg) `or` (jmt res)}
+  where jmt mr = case mr of Just r -> recordValue r; Nothing -> Right
+        or Wrong _ = Wrong
+        or _ Wrong = Wrong
+        or _ _     = Right
           
-
--- MF TODO: need to collect children of children as well
-children :: Trace Value -> Id -> [Record Value]
-children trc unq = filter (\(_,_,val) -> chd $ traceParent val) trc
-  where chd (ArgOf unq') = unq' == unq
-        chd (ResOf unq') = unq' == unq
-        chd _            = False
-
 --------------------------------------------------------------------------------
 -- Expressions.
 
@@ -59,7 +49,7 @@ data Expr = Const  Judgement
 --------------------------------------------------------------------------------
 -- The reduction rules.
 
-reduce :: ReduceRule Value Expr
+reduce :: ReduceRule Judgement Expr
 
 reduce trc (Const jmt) = 
   return (trc,Expression (Const jmt))
@@ -75,8 +65,8 @@ reduce trc (ACCCorrect l e) = do
 reduce trc (ACCFaulty l e) = do
   stk <- gets stack
   doPush l
-  id <- getUniq
-  r <- eval reduce (trace (l,stk,Value id Root Wrong) trc) e
+  uid <- getUniq
+  r <- eval reduce (trace (Record l stk uid Root Wrong) trc) e
   case r of
     (trc,Expression (Const jmt)) -> return (trc,Expression (Const Wrong))
     _                            -> return r
@@ -137,14 +127,14 @@ reduce trc (Observed l s p e) = do
     Exception msg -> 
       return (trc',Exception msg)
     Expression (Const jmt) -> do
-      id <- getUniq
-      return (trace (l,s,Value id p jmt) trc, e')
+      uid <- getUniq
+      return (trace (Record l s uid p jmt) trc, e')
     Expression (Lambda x e) -> do
-      id <- getUniq
+      uid <- getUniq
       let x' = "_" ++ x; x'' = "__" ++ x
-          body = Let (x',Observed l stk (ArgOf id) (Var x'')) 
-                     (Apply (Lambda x (Observed l s (ResOf id) e)) x')
-          trc'' = trace (l,s,Value id p Right) trc'
+          body = Let (x',Observed l stk (ArgOf uid) (Var x'')) 
+                     (Apply (Lambda x (Observed l s (ResOf uid) e)) x')
+          trc'' = trace (Record l s uid p Right) trc'
       return (trc'', Expression (Lambda x'' body))
     Expression e -> 
       return (trc,Exception $ "Observe undefined: " ++ show e)
@@ -173,7 +163,7 @@ type CompGraph = Graph (Vertex String)
 findFaulty' :: Graph (Vertex Judgement) -> [Vertex Judgement]
 findFaulty' = findFaulty wrongCC mergeCC
   where mergeCC ws = foldl (++) [] ws
-        wrongCC = foldl (\w r -> case r of (_,_,Wrong) -> True; _ -> w) False
+        wrongCC = foldl (\w r -> case recordValue r of Wrong -> True; _ -> w) False
 
 debug :: Expr -> IO ()
 debug redex = do
@@ -193,7 +183,8 @@ disp redex = do
         shw g = showWith g showVertex showArc
         showVertex = (foldl (++) "") . (map showRecord)
         -- showRecord = thd
-        showRecord (lbl,stk,str) = str ++ " (with stack " ++ show stk ++ ")\n"
+        showRecord rec = (recordValue rec) ++ " (with stack "
+                        ++ show (recordStack rec) ++ ")\n"
         showArc _  = ""
 
 e1 = ACCFaulty "Z" (ACCFaulty "U" (ACCCorrect "Z" (ACCCorrect "N" (Const Right))))

@@ -7,36 +7,25 @@ import Context
 import Debug
 
 --------------------------------------------------------------------------------
--- Tracing
-
-data Value  = Value { traceId :: Id, traceParent :: Parent, traceValue :: String }
-  deriving (Show)
-
---------------------------------------------------------------------------------
 -- Trace post processing
 
-mkEquations :: (Trace Value, e) -> (Trace String, e)
-mkEquations (trc,reduct) = (map toString . filter isRoot . map (replace True trc) $ trc,reduct)
-  where isRoot (_,_,val)   = traceParent val == Root
-        toString (lbl,stk,val) = (lbl,stk,traceValue val)
+mkEquations :: (Trace String, e) -> (Trace String, e)
+mkEquations (trc,reduct) = (filter isRoot . map (successors trc merge) $ trc,reduct)
+  where isRoot = (== Root) . recordParent
 
- 
-replace top trc (lbl,stk,val) 
-  = if traceValue val == "\\" && top
-      then (lbl,stk,val{ traceValue = lbl ++ " " ++ arg ++ " = " ++ res })
-    else if traceValue val == "\\"
-      then (lbl,stk,val{ traceValue = "(\\" ++ arg ++ " -> " ++ res ++ ")"})
-    else if top
-      then (lbl,stk,val{ traceValue = lbl ++ " = " ++ traceValue val })
-    else (lbl,stk,val)
-  where (res,arg) = children trc (traceId val)
 
-children :: Trace Value -> Id -> (String, String)
-children trc id = (f (ArgOf id),f (ResOf id))
-  where f p = case filter (\(_,_,val) -> traceParent val == p) trc of
-                []  -> "_"
-                [r] -> (traceValue . thd) (replace False trc r)
-
+merge rec arg res =
+  if lam && top
+    then rec {recordValue = recordLabel rec ++ " " ++ val arg ++ " = " ++ val res }
+  else if lam
+    then rec {recordValue = "(\\" ++ val arg ++ " -> " ++ val res ++ ")"}
+  else if top
+    then rec {recordValue = recordLabel rec ++ " = " ++ recordValue rec}
+    else rec
+  where lam = recordValue rec == "\\"
+        top = recordParent rec == Root
+        val Nothing = "_"
+        val (Just r) = recordValue r
 
 --------------------------------------------------------------------------------
 -- Expressions
@@ -53,7 +42,7 @@ data Expr = Const    Int
 --------------------------------------------------------------------------------
 -- Reduction rules
 
-reduce :: ReduceRule Value Expr
+reduce :: ReduceRule String Expr
 
 reduce trc (Const i) = 
   return (trc,Expression (Const i))
@@ -107,14 +96,14 @@ reduce trc (Observed l s p e) = do
   case e' of
     Exception msg           -> return (trc',Exception msg)
     Expression (Const i)    -> do
-      id <- getUniq
-      return (trace (l,s,Value id p (show i)) trc',Expression (Const i))
+      uid <- getUniq
+      return (trace (Record l s uid p (show i)) trc',Expression (Const i))
     Expression (Lambda x e) -> do
-      id <- getUniq
+      uid <- getUniq
       let x' = "_" ++ x; x'' = "__" ++ x
-          body = Let (x',Observed l stk (ArgOf id) (Var x'')) 
-                     (Apply (Lambda x (Observed l s (ResOf id) e)) x')
-          trc''     = trace (l,s,Value id p "\\") trc'
+          body = Let (x',Observed l stk (ArgOf uid) (Var x'')) 
+                     (Apply (Lambda x (Observed l s (ResOf uid) e)) x')
+          trc''     = trace (Record l s uid p "\\") trc'
       eval reduce trc'' (Lambda x'' body)
 
 --------------------------------------------------------------------------------
@@ -145,8 +134,7 @@ disp = (display shw) . snd . tracedEval
   where shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
         showVertex = (foldl (++) "") . (map showRecord)
-        showRecord = thd
-        -- showRecord (lbl,stk,str) = lbl ++ ": " ++ str ++ " (with stack " ++ show stk ++ ")\n"
+        showRecord = recordValue
         showArc _  = ""
 
 -- run' = evalWith' reduce

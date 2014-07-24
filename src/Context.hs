@@ -64,16 +64,26 @@ lookupHeap x = do
 --------------------------------------------------------------------------------
 -- Tracing help.
 
-type Id = Int
+type Trace value = [Record value]
 
-getUniq :: Cxt expr Id
+data Record value = Record
+  { recordLabel  :: Label
+  , recordStack  :: Stack
+  , recordUID    :: UID
+  , recordParent :: Parent
+  , recordValue  :: value
+  } deriving (Show,Eq,Ord)
+
+type UID = Int
+
+data Parent = Root | ArgOf UID | ResOf UID deriving (Show,Eq,Ord)
+
+getUniq :: Cxt expr UID
 getUniq = do
   i <- gets uniq
   modify $ \cxt -> cxt { uniq = i + 1 }
   return i
 
-data Parent = Root | ArgOf Id | ResOf Id
-  deriving (Show,Eq)
 
 trace :: Record value -> Trace value -> Trace value
 trace = (:)
@@ -81,11 +91,21 @@ trace = (:)
 thd :: (a,b,c) -> c
 thd (_,_,z) = z
 
+ 
+successors :: Trace value
+           -> (Record value -> Maybe (Record value) -> Maybe (Record value) -> Record value)
+           -> Record value -> Record value
+successors trc merge rec = merge rec arg res
+  where arg = suc ArgOf
+        res = suc ResOf
+        suc con = case filter (\chd -> recordParent chd == con (recordUID rec)) trc of
+          []  -> Nothing
+          [chd] -> Just (successors trc merge chd)
+
+
 --------------------------------------------------------------------------------
 -- The state.
 
-type Trace value = [Record value]
-type Record value = (Label,Stack,value)
 
 type ReduceRule value expr = Trace value -> expr -> Cxt expr (Trace value,ExprExc expr)
 
