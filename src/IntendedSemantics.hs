@@ -18,14 +18,14 @@ data Value  = Value { traceId :: Id, traceParent :: Parent, traceValue :: Judgem
 --------------------------------------------------------------------------------
 -- Trace post processing (only for displaying, not used for QuickChecking)
 
-mkEquations' :: (Trace Value, e) -> (Trace String, e)
+mkEquations' :: (Trace Judgement, e) -> (Trace String, e)
 mkEquations' (trc,reduct) = (map toString trc, reduct)
   where toString (lbl,stk,jmt) = (lbl,stk,lbl ++ " = " ++ show jmt)
 
-
-mkEquations :: (Trace Value, e) -> (Trace Value, e)
-mkEquations (trc,reduct) = (filter isRoot . map (replace trc) $ trc,reduct)
-  where isRoot (_,_,val)   = traceParent val == Root
+mkEquations :: (Trace Value, e) -> (Trace Judgement, e)
+mkEquations (trc,reduct) = (map toJudgement . filter isRoot . map (replace trc) $ trc,reduct)
+  where isRoot (_,_,val)          = traceParent val == Root
+        toJudgement (lbl,stk,val) = (lbl,stk,traceValue val)
 
 replace :: Trace Value -> Record Value -> Record Value
 replace trc (lbl,stk,val)
@@ -171,15 +171,15 @@ sub n m n' = if n == n' then n' else m
 
 type CompGraph = Graph (Vertex String)
 
--- findFaulty' :: Graph (Vertex Judgement) -> [Vertex Judgement]
--- findFaulty' = findFaulty wrongCC mergeCC
---   where mergeCC ws = foldl (++) [] ws
---         wrongCC = foldl (\w r -> case r of (_,_,Wrong) -> True; _ -> w) False
--- 
--- debug :: Expr -> IO ()
--- debug redex = do
---   let (reduct,compgraph) = mkGraph . (evalWith reduce) $ redex
---   print (findFaulty' compgraph)
+findFaulty' :: Graph (Vertex Judgement) -> [Vertex Judgement]
+findFaulty' = findFaulty wrongCC mergeCC
+  where mergeCC ws = foldl (++) [] ws
+        wrongCC = foldl (\w r -> case r of (_,_,Wrong) -> True; _ -> w) False
+
+debug :: Expr -> IO ()
+debug redex = do
+  let (reduct,compgraph) = mkGraph . mkEquations . (evalWith reduce) $ redex
+  print (findFaulty' compgraph)
 
 tracedEval :: Expr -> (ExprExc Expr,CompGraph)
 tracedEval = mkGraph . mkEquations' . mkEquations . (evalWith reduce)
