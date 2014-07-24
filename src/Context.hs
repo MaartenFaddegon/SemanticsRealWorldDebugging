@@ -26,7 +26,8 @@ doCall :: Stack -> Cxt expr ()
 doCall sLam = modify $ \s -> s {stack = call (stack s) sLam}
 
 call :: Stack -> Stack -> Stack
-call sApp sLam = sApp ++ sLam'
+-- MF TODO: look into this, call sApp sLam = sApp ++ sLam'
+call sApp sLam = sLam' ++ sApp
   where (sPre,sApp',sLam') = commonPrefix sApp sLam
 
 commonPrefix :: Stack -> Stack -> (Stack, Stack, Stack)

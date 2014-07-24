@@ -93,7 +93,7 @@ reduce trc (Var x) = do
           -- MF TODO: Need to check this (here and for TraceSemantics). I think
           -- that Simon Marlow reverts back to stk here. But that certainly
           -- leads to weird stacks. Try e3 for example.
-          -- setStack stk
+          setStack stk
           eval reduce trcv (Var x)
 
 reduce trc (ACCCorrect l e) = do
@@ -189,4 +189,6 @@ e3 = ACCCorrect "A" (ACCCorrect "B"((Let ("z",ACCCorrect "C" (Lambda "y" (ACCCor
 e3' = Let ("z",ACCCorrect "C" (Lambda "y" (ACCCorrect "lam" (Const Right)))) 
           (Apply (Var "z") "z")
 
-e4 = Apply (ACCCorrect "N" (Let ("z",Let ("y",Var "y") (ACCCorrect "C" (Lambda "z" (ACCFaulty "N" (Const Right))))) (ACCCorrect "F" (ACCFaulty "V" (ACCCorrect "V" (Var "z")))))) "z"
+e4 = ACCCorrect "root" (Apply (ACCCorrect "N" (Let ("z",Let ("y",Var "y") (ACCCorrect "C" (Lambda "z" (ACCFaulty "N" (Const Right))))) (ACCCorrect "F" (ACCFaulty "V" (ACCCorrect "V" (Var "z")))))) "z")
+
+e5 = ACCCorrect "root" (ACCCorrect "root" (Apply (ACCCorrect "G" (Lambda "x" (ACCCorrect "U" (Let ("y",Lambda "x" (ACCFaulty "Y" (ACCFaulty "B" (ACCCorrect "Y" (Apply (ACCFaulty "D" (Lambda "z" (Apply (Lambda "y" (Const Right)) "x"))) "y"))))) (ACCFaulty "I" (Apply (Let ("z",Apply (Lambda "y" (Apply (Const Right) "x")) "x") (ACCFaulty "V" (ACCCorrect "D" (Var "x")))) "y")))))) "y"))
