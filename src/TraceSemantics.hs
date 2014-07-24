@@ -44,8 +44,8 @@ data Expr = Const    Int
 
 reduce :: ReduceRule String Expr
 
-reduce trc (Const i) = 
-  return (trc,Expression (Const i))
+reduce trc (Const v) = 
+  return (trc,Expression (Const v))
 
 reduce trc (Lambda x e) = 
   return (trc,Expression $ Lambda x e)
@@ -56,16 +56,11 @@ reduce trc (Let (x,e1) e2) = do
   reduce trc e2
 
 reduce trc (Apply f x) = do
-  (trc', e) <- eval reduce trc f
+  (trc_lam, e) <- eval reduce trc f
   case e of 
-    Expression (Lambda y e) -> eval reduce trc' (subst y x e)
-    Exception msg           -> return (trc',Exception msg)
-    _                       -> return (trc',Exception "Apply non-Lambda?")
-
-reduce trc (ACC l e) = do
-  stk <- gets stack
-  doPush l
-  eval reduce trc (Observed l stk Root e)
+    Expression (Lambda y e) -> eval reduce trc_lam (subst y x e)
+    Exception msg           -> return (trc_lam,Exception msg)
+    _                       -> return (trc_lam,Exception "Apply non-Lambda?")
 
 reduce trc (Var x) = do
   r <- lookupHeap x
@@ -73,9 +68,9 @@ reduce trc (Var x) = do
     (stk,Exception msg) -> do
       setStack stk
       return (trc,Exception msg)
-    (stk,Expression (Const i)) -> do         -- MF TODO: I think this one is not necessary
+    (stk,Expression (Const v)) -> do
       setStack stk
-      return (trc,Expression (Const i))
+      return (trc,Expression (Const v))
     (stk,Expression (Lambda y e)) -> do
       doCall stk
       return (trc,Expression (Lambda y e))
@@ -88,29 +83,38 @@ reduce trc (Var x) = do
         Expression v  -> do
           stkv <- gets stack
           insertHeap x (stkv,v)
+          setStack stk
           eval reduce trcv (Var x) 
+
+reduce trc (ACC l e) = do
+  stk <- gets stack
+  doPush l
+  eval reduce trc (Observed l stk Root e)
 
 reduce trc (Observed l s p e) = do
   stk <- gets stack
   (trc',e') <- eval reduce trc e
   case e' of
-    Exception msg           -> return (trc',Exception msg)
-    Expression (Const i)    -> do
+    Exception msg ->
+      return (trc',Exception msg)
+    Expression (Const v) -> do
       uid <- getUniq
-      return (trace (Record l s uid p (show i)) trc',Expression (Const i))
+      return (trace (Record l s uid p (show v)) trc',e')
     Expression (Lambda x e) -> do
       uid <- getUniq
       let x' = "_" ++ x; x'' = "__" ++ x
           body = Let (x',Observed l stk (ArgOf uid) (Var x'')) 
                      (Apply (Lambda x (Observed l s (ResOf uid) e)) x')
-          trc''     = trace (Record l s uid p "\\") trc'
-      eval reduce trc'' (Lambda x'' body)
+          trc'' = trace (Record l s uid p "\\") trc'
+      return (trc'',Expression (Lambda x'' body))
+    Expression e -> 
+      return (trc,Exception $ "Observe undefined: " ++ show e)
 
 --------------------------------------------------------------------------------
 -- Substituting variable names.
 
 subst :: Name -> Name -> Expr -> Expr
-subst n m (Const i)          = Const i
+subst n m (Const v)          = Const v
 subst n m (Lambda n' e)      = Lambda (sub n m n') (subst n m e)
 subst n m (Apply e n')       = Apply (subst n m e) (sub n m n')
 subst n m (Var n')           = Var (sub n m n')

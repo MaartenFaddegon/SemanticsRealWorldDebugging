@@ -34,49 +34,35 @@ merge rec arg res = rec{recordValue=(recordValue rec) `or` (jmt arg) `or` (jmt r
         or _ _     = Right
           
 --------------------------------------------------------------------------------
--- Expressions.
+-- Expressions
 
-data Expr = Const  Judgement
-          | Lambda Name Expr
-          | Apply  Expr Name
-          | Var    Name
-          | Let    (Name,Expr) Expr
+data Expr = Const    Judgement
+          | Lambda   Name Expr
+          | Apply    Expr Name
+          | Var      Name
+          | Let      (Name,Expr) Expr
           | ACCCorrect Label Expr
           | ACCFaulty  Label Expr
           | Observed   Label Stack Parent Expr
           deriving (Show,Eq)
 
 --------------------------------------------------------------------------------
--- The reduction rules.
+-- Reduction rules.
 
 reduce :: ReduceRule Judgement Expr
 
-reduce trc (Const jmt) = 
-  return (trc,Expression (Const jmt))
+reduce trc (Const v) = 
+  return (trc,Expression (Const v))
 
 reduce trc (Lambda x e) = 
   return (trc,Expression $ Lambda x e)
 
-reduce trc (ACCCorrect l e) = do
-  stk <- gets stack
-  doPush l
-  eval reduce trc (Observed l stk Root e)
-
-reduce trc (ACCFaulty l e) = do
-  stk <- gets stack
-  doPush l
-  uid <- getUniq
-  r <- eval reduce (trace (Record l stk uid Root Wrong) trc) e
-  case r of
-    (trc,Expression (Const jmt)) -> return (trc,Expression (Const Wrong))
-    _                            -> return r
-
 reduce trc (Let (x,e1) e2) = do
   stk <- gets stack
   insertHeap x (stk,e1)
-  eval reduce trc e2
+  reduce trc e2
 
-reduce trc orig@(Apply f x) = do
+reduce trc (Apply f x) = do
   (trc_lam, e) <- eval reduce trc f
   case e of 
     Expression (Lambda y e) -> eval reduce trc_lam (subst y x e)
@@ -89,9 +75,9 @@ reduce trc (Var x) = do
     (stk,Exception msg) -> do
       setStack stk
       return (trc,Exception msg)
-    (stk,Expression (Const jmt)) -> do
+    (stk,Expression (Const v)) -> do
       setStack stk
-      return (trc,Expression (Const jmt))
+      return (trc,Expression (Const v))
     (stk,Expression (Lambda y e)) -> do
       doCall stk
       return (trc,Expression (Lambda y e))
@@ -107,35 +93,37 @@ reduce trc (Var x) = do
           setStack stk
           eval reduce trcv (Var x)
 
--- MF TODO: similar changes to that of the TraceSemantics Observe rule need to
--- be made here.
---X reduce trc (Observed l s e) = do
---X   case e of Const              -> return (trace (l,s,Right) trc,Expression Const)
---X             (ACCFaulty l' e')  -> eval reduce (trace (l,s,Wrong) trc) (ACCFaulty l' e')
---X             (ACCCorrect l' e') -> eval reduce trc (ACCCorrect l' (Observed l s e'))
---X             (Let (x,e1) e2)    -> eval reduce trc (Let (x,e1) (Observed l s e2))
---X             _ -> do
---X               (trc',e') <- eval reduce trc e
---X               case e' of
---X                 Exception msg  -> return (trc',Exception msg)
---X                 Expression e'' -> eval reduce trc' (Observed l s e'')
+reduce trc (ACCCorrect l e) = do
+  stk <- gets stack
+  doPush l
+  eval reduce trc (Observed l stk Root e)
+
+reduce trc (ACCFaulty l e) = do
+  stk <- gets stack
+  doPush l
+  uid <- getUniq
+  r <- eval reduce (trace (Record l stk uid Root Wrong) trc) e
+  case r of
+    (trc,Expression (Const jmt)) -> return (trc,Expression (Const Wrong))
+    _                            -> return r
+
 
 reduce trc (Observed l s p e) = do
   stk <- gets stack
   (trc',e') <- eval reduce trc e
   case e' of
-    Exception msg -> 
+    Exception msg ->
       return (trc',Exception msg)
-    Expression (Const jmt) -> do
+    Expression (Const v) -> do
       uid <- getUniq
-      return (trace (Record l s uid p jmt) trc, e')
+      return (trace (Record l s uid p v) trc',e')
     Expression (Lambda x e) -> do
       uid <- getUniq
       let x' = "_" ++ x; x'' = "__" ++ x
           body = Let (x',Observed l stk (ArgOf uid) (Var x'')) 
                      (Apply (Lambda x (Observed l s (ResOf uid) e)) x')
           trc'' = trace (Record l s uid p Right) trc'
-      return (trc'', Expression (Lambda x'' body))
+      return (trc'',Expression (Lambda x'' body))
     Expression e -> 
       return (trc,Exception $ "Observe undefined: " ++ show e)
 
@@ -143,17 +131,17 @@ reduce trc (Observed l s p e) = do
 -- Substituting variable names.
 
 subst :: Name -> Name -> Expr -> Expr
-subst n m (Const jmt)        = Const jmt
+subst n m (Const v)        = Const v
 subst n m (Lambda n' e)      = Lambda (sub n m n') (subst n m e)
 subst n m (Apply e n')       = Apply (subst n m e) (sub n m n')
 subst n m (Var n')           = Var (sub n m n')
 subst n m (Let (n',e1) e2)   = Let ((sub n m n'),(subst n m e1)) (subst n m e2)
 subst n m (ACCCorrect l e)   = ACCCorrect l (subst n m e)
 subst n m (ACCFaulty l e)    = ACCFaulty l (subst n m e)
-subst n m (Observed l s p e) = (Observed l s p (subst n m e))
+subst n m (Observed l s p e) = Observed l s p (subst n m e)
 
 sub :: Name -> Name -> Name -> Name
-sub n m n' = if n == n' then n' else m
+sub n m n' = if n == n' then m else n'
 
 --------------------------------------------------------------------------------
 -- Examples.
