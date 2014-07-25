@@ -210,3 +210,20 @@ e6' = ACCCorrect "root"
            )
          )
       )
+
+e7 = ACCFaulty "A" 
+       (ACCFaulty "B" 
+         (ACCFaulty "C" 
+           (Let 
+             ("x",Lambda "y" 
+                (ACCFaulty "D" (Const Right)
+                )
+             )
+             (ACCFaulty "B" 
+                 (ACCFaulty "F" 
+                        (Apply (Var "x") "x")
+             ) )
+           )
+         )
+       )
+

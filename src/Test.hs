@@ -8,7 +8,7 @@ import Context
 import Debug
 
 --------------------------------------------------------------------------------
--- Algorithmic debugging from a trace.
+-- Algorithmic debugging from a trace
 
 faultyNodes :: Expr -> [Label]
 faultyNodes = getLabels . findFaulty' . snd . mkGraph . mkEquations . (evalWith reduce)
@@ -20,7 +20,7 @@ getLabels = foldl accLabels []
 
 
 --------------------------------------------------------------------------------
--- List of faulty expressions (static analysis).
+-- List of faulty expressions (static analysis)
 
 faultyExprs :: Expr -> [Label]
 faultyExprs (Const _)         = []
@@ -32,7 +32,7 @@ faultyExprs (ACCCorrect _ e)  = faultyExprs e
 faultyExprs (ACCFaulty l e)   = l : faultyExprs e
 
 --------------------------------------------------------------------------------
--- Tests.
+-- Generating arbitrary expressions
 
 gen_expr :: Int -> Gen Expr
 gen_expr 0 = elements [Const Right]
@@ -49,8 +49,28 @@ gen_expr n = oneof [ elements [Const Right]
         gen_label = elements $ map (:[]) ['A'..'Z']
         gen_name  = elements $ map (:[]) ['x'..'z']
 
+uniqueLabels :: [Label] -> Expr -> Expr
+uniqueLabels lbls e = snd (uniqueLabels' lbls e)
+
+uniqueLabels' lbls (Const v)             = (lbls,Const v)
+uniqueLabels' lbls (Lambda n e)          = let (lbls',e') = uniqueLabels' lbls e
+                                           in (lbls',Lambda n e')
+uniqueLabels' lbls (Apply e n)           = let (lbls',e') = uniqueLabels' lbls e
+                                           in (lbls',Apply e' n)
+uniqueLabels' lbls (Var n)               = (lbls,Var n)
+uniqueLabels' lbls (Let (n,e1) e2)       = let (lbls1,e1') = uniqueLabels' lbls  e1
+                                               (lbls2,e2') = uniqueLabels' lbls1 e2
+                                           in (lbls2,Let (n,e1') e2')
+uniqueLabels' (l:lbls) (ACCCorrect _ e)  = let (lbls',e') = uniqueLabels' lbls e 
+                                           in (lbls',ACCCorrect l e')
+uniqueLabels' (l:lbls) (ACCFaulty _ e)   = let (lbls',e') = uniqueLabels' lbls e
+                                           in (lbls',ACCFaulty l e')
+
 instance Arbitrary Expr where
   arbitrary = sized gen_expr
+
+--------------------------------------------------------------------------------
+-- Propositions
 
 -- MF TODO: should we really allow any redex that doesn't throw an expression?
 propValidExpr :: Expr -> Bool
@@ -73,16 +93,11 @@ propIsWrong e = case snd (evalWith reduce e) of
   (Expression (Const Wrong)) -> True
   _                          -> False
 
-lookupT :: Label -> Trace Judgement -> Maybe Judgement
-lookupT l t = lookup l (zip ls vs)
-  where vs = map recordValue t
-        ls = map recordLabel t
-
-
 propFaultyIfWrong e = propIsWrong e ==> propFoundFaulty e
 
 sound e = propValidExpr e' ==> propFaultyIfWrong e'
-  where e' = ACCCorrect "root" e
+  where e'   = ACCCorrect "root" (uniqueLabels lbls e)
+        lbls = zipWith (++) (cycle ["CC"]) (map show [1..])
 
 main = quickCheckWith args sound
   where args = Args { replay          = Nothing
@@ -91,72 +106,3 @@ main = quickCheckWith args sound
                     , maxSize         = 1000    -- max subexpressions
                     , chatty          = True
                     }
-
---   ---
---   
---   showGraph :: Graph (Vertex Judgement) -> String
---   showGraph g = showWith g showVertex noShow 
---   
---   showVertex :: (Vertex Judgement) -> String
---   showVertex (Vertex rs) = show rs
---   
---   noShow :: Arc a -> String
---   noShow _ = ""
---   
---   ---
---   
---   expr1 = ACCCorrect "y" (ACCFaulty "x" Const)
---   expr2 = Let ("e",ACCFaulty "K" Const) (Let ("d",Const) Const)
---   expr3 = Let ("n",Lambda "n" Const) (Var "n")
---   expr4 = Let ("n", Const) (Var "n")
---   
---   test1 = propExact expr1
---   
---   -- Doesn't terminate:
---   test2  = evalWith reduce $ Apply (Lambda "y" (Apply (                 (Lambda "z" ((Apply (Var "y") "z")))) "z")) "z"
---   
---   test2b = evalWith reduce $ Apply (Lambda "y" (Apply (Let ("x",Const) (Lambda "z" ((Apply (Var "y") "z")))) "z")) "z"
---   
---   
---   test2c = evalWith reduce $ Apply ((Apply (Let ("z",Apply Const "x") (Lambda "z" (Apply ((Apply ((Apply (Var "x") "x")) "y")) "y"))) "z")) "z"
---   
---   test2d = evalWith reduce $ Apply (ACCCorrect "E" (Apply (Let ("z",Apply Const "x") (Lambda "z" (Apply (ACCCorrect "O" (Apply (ACCCorrect "D" (Apply (Var "x") "x")) "y")) "y"))) "z")) "z"
---   
---   -- lookup failed?
---   
---   test3a = faultyNodes $ ACCFaulty "A" (ACCCorrect "B" Const)
---   test3b = (display showGraph) . mkGraph . evalWith reduce $ ACCFaulty "A" (ACCCorrect "B" Const)
---   -- test3c = (display showGraph) . rmCycles . mkGraph . evalWith reduce $ ACCFaulty "L" (ACCFaulty "L" (Var "z"))
---   
---   e4 = ACCFaulty "O" (ACCCorrect "C" (Let ("y",Const) (ACCCorrect "R" (ACCCorrect "F" (Var "y")))))
---   
---   test4a = (display showGraph) . mkGraph . evalWith reduce $ e4
---   
---   test4b = evalWith reduce e4
---   
---   e5 = ACCFaulty "OUTER" (ACCCorrect "INNER" (Let ("x",Const) (Var "x")))
---   
---   e6 = ACCFaulty "A" (ACCCorrect "B" (ACCCorrect "C" (ACCFaulty "D" (Var "x"))))
---   
---   test = (display showGraph) . (dagify mergeCC) . mkGraph . evalWith reduce
---   test' = (display showGraph) . mkGraph . evalWith reduce
---   
---   e7 = ACCFaulty "A" (ACCCorrect "B" (Apply (ACCFaulty "C" (Apply (Let ("z",Apply (Apply (Var "y") "x") "x") (Lambda "z" (ACCFaulty "D" (ACCFaulty "E" (Var "x"))))) "z")) "y"))
---   
---   e7' = ACCFaulty "A" 
---           (ACCCorrect "B"
---             (Apply 
---               (Apply 
---                 (Let
---                   ("z", Const )
---                   (Lambda "z" 
---                     (ACCFaulty "C" (ACCFaulty "D" (Var "x")))
---                   )
---                 ) 
---               "z"
---               ) 
---              "y"
---             )
---           )
---   
---   -- e7' = ACCFaulty "A" (ACCCorrect "B" (Apply ((Apply (Let ("z",Apply (Apply (Var "y") "x") "x") (Lambda "z" (ACCFaulty "D" (ACCFaulty "E" (Var "x"))))) "z")) "y"))
