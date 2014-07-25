@@ -65,7 +65,7 @@ reduce trc (Let (x,e1) e2) = do
 reduce trc (Apply f x) = do
   (trc_lam, e) <- eval reduce trc f
   case e of 
-    Expression (Lambda y e) -> eval reduce trc_lam (subst y x e)
+    Expression (Lambda y e) -> eval reduce trc_lam (subst x y e)
     Exception msg           -> return (trc_lam,Exception msg)
     _                       -> return (trc_lam,Exception "Apply non-Lambda?")
 
@@ -192,3 +192,21 @@ e3' = Let ("z",ACCCorrect "C" (Lambda "y" (ACCCorrect "lam" (Const Right))))
 e4 = ACCCorrect "root" (Apply (ACCCorrect "N" (Let ("z",Let ("y",Var "y") (ACCCorrect "C" (Lambda "z" (ACCFaulty "N" (Const Right))))) (ACCCorrect "F" (ACCFaulty "V" (ACCCorrect "V" (Var "z")))))) "z")
 
 e5 = ACCCorrect "root" (ACCCorrect "root" (Apply (ACCCorrect "G" (Lambda "x" (ACCCorrect "U" (Let ("y",Lambda "x" (ACCFaulty "Y" (ACCFaulty "B" (ACCCorrect "Y" (Apply (ACCFaulty "D" (Lambda "z" (Apply (Lambda "y" (Const Right)) "x"))) "y"))))) (ACCFaulty "I" (Apply (Let ("z",Apply (Lambda "y" (Apply (Const Right) "x")) "x") (ACCFaulty "V" (ACCCorrect "D" (Var "x")))) "y")))))) "y"))
+
+e6 = ACCCorrect "root" (ACCFaulty "I" (ACCFaulty "W" (Let ("y",Var "x") (Apply (ACCFaulty "V" (Apply (Apply (Let ("x",ACCFaulty "L" (Let ("z",ACCFaulty "K" (Lambda "y" (Const Right))) (Lambda "y" (ACCFaulty "D" (Let ("x",ACCFaulty "W" (ACCCorrect "C" (Const Right))) (ACCCorrect "H" (ACCFaulty "M" (Var "y")))))))) (ACCCorrect "K" (Lambda "z" (Lambda "y" (Var "y"))))) "z") "x")) "x"))))
+
+
+e6' = ACCCorrect "root" 
+      ( (Let ("y",Var "x") 
+          (Apply 
+            (Apply
+              (Apply 
+                (Let 
+                  ("x",ACCFaulty "L" (Lambda "y" (ACCFaulty "C" (Const Right)))) 
+                  (ACCCorrect "Z" (Lambda "z" (Lambda "y" (Var "y"))))
+                ) "z"
+              ) "x"
+            ) "x"
+           )
+         )
+      )
