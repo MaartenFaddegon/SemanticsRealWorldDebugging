@@ -3,8 +3,6 @@ module Context where
 import Control.Monad.State
 import Data.Graph.Libgraph
 
-import qualified Debug.Trace as Debug
-
 --------------------------------------------------------------------------------
 -- Stack handling: push and call.
 
@@ -28,7 +26,7 @@ doCall sLam = modify $ \s -> s {stack = call (stack s) sLam}
 call :: Stack -> Stack -> Stack
 -- MF TODO: look into this, call sApp sLam = sApp ++ sLam'
 call sApp sLam =
-       Debug.trace ("call " ++ show sApp ++ " " ++ show sLam ++ " = " ++ show sNew) sNew
+       sNew
 
 -- call sApp sLam = sNew
   where (sPre,sLam',sApp') = commonPrefix sLam sApp -- sApp sLam
