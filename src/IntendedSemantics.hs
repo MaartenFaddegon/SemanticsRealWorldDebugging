@@ -6,6 +6,8 @@ import Data.Graph.Libgraph(Graph,display,showWith,findFaulty)
 import Context
 import Debug
 
+-- import qualified Debug.Trace as Debug
+
 --------------------------------------------------------------------------------
 -- Tracing
 
@@ -60,12 +62,17 @@ reduce trc (Lambda x e) =
 reduce trc (Let (x,e1) e2) = do
   stk <- gets stack
   insertHeap x (stk,e1)
-  reduce trc e2
+  result <- reduce trc e2
+  deleteHeap x
+  return result
 
 reduce trc (Apply f x) = do
   (trc_lam, e) <- eval reduce trc f
   case e of 
-    Expression (Lambda y e) -> eval reduce trc_lam (subst x y e)
+    Expression (Lambda y e) -> do
+      -- let e' = subst y x e
+      -- eval reduce trc_lam (Debug.trace ("subst " ++ show e ++ " = " ++ show e') e')
+      eval reduce trc_lam (subst y x e)
     Exception msg           -> return (trc_lam,Exception msg)
     _                       -> return (trc_lam,Exception "Apply non-Lambda?")
 
@@ -211,19 +218,11 @@ e6' = ACCCorrect "root"
          )
       )
 
-e7 = ACCFaulty "A" 
-       (ACCFaulty "B" 
-         (ACCFaulty "C" 
-           (Let 
-             ("x",Lambda "y" 
-                (ACCFaulty "D" (Const Right)
-                )
-             )
-             (ACCFaulty "B" 
-                 (ACCFaulty "F" 
-                        (Apply (Var "x") "x")
-             ) )
-           )
-         )
-       )
 
+e7 =  ACCCorrect "root" 
+        (Apply 
+          (Let 
+            ("x",ACCFaulty "A" (Lambda "x"(ACCFaulty "B" (Const Right)))) 
+            (ACCFaulty "C" (Let ("z",Apply (Lambda "x" (Const Right)) "z") (Var "z")))
+          ) "a"
+        )

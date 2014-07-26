@@ -49,8 +49,9 @@ gen_expr n = oneof [ elements [Const Right]
         gen_label = elements $ map (:[]) ['A'..'Z']
         gen_name  = elements $ map (:[]) ['x'..'z']
 
-uniqueLabels :: [Label] -> Expr -> Expr
-uniqueLabels lbls e = snd (uniqueLabels' lbls e)
+uniqueLabels :: Expr -> Expr
+uniqueLabels e = snd (uniqueLabels' lbls e)
+  where lbls = zipWith (++) (cycle ["CC"]) (map show [1..])
 
 uniqueLabels' lbls (Const v)             = (lbls,Const v)
 uniqueLabels' lbls (Lambda n e)          = let (lbls',e') = uniqueLabels' lbls e
@@ -105,8 +106,7 @@ propIsWrong e = case snd (evalWith reduce e) of
 propFaultyIfWrong e = propIsWrong e ==> propFoundFaulty e
 
 sound e = propValidExpr e' ==> propFaultyIfWrong e'
-  where e'   = ACCCorrect "root" (uniqueLabels lbls e)
-        lbls = zipWith (++) (cycle ["CC"]) (map show [1..])
+  where e'   = ACCCorrect "root" (uniqueLabels e)
 
 main = quickCheckWith args sound
   where args = Args { replay          = Nothing
