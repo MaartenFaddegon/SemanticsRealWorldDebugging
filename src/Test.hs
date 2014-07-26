@@ -49,6 +49,22 @@ gen_expr n = oneof [ elements [Const Right]
         gen_label = elements $ map (:[]) ['A'..'Z']
         gen_name  = elements $ map (:[]) ['x'..'z']
 
+gen_exprWeak :: Int -> Gen Expr
+gen_exprWeak 0 = elements [Const Right]
+gen_exprWeak n = oneof [ elements [Const Right]
+                       , liftM2 Lambda     gen_name gen_acc
+                       , liftM2 Apply      gen_expr' gen_name
+                       , liftM  Var        gen_name
+                       , liftM3 mkLet      gen_name gen_expr' gen_expr'
+                       ]
+  where gen_expr' = gen_exprWeak (n-1)
+        mkLet n e1 e2 = Let (n,e1) e2
+        gen_label = elements $ map (:[]) ['A'..'Z']
+        gen_name  = elements $ map (:[]) ['x'..'z']
+        gen_acc   = oneof [ liftM2 ACCCorrect gen_label gen_expr'
+                          , liftM2 ACCFaulty  gen_label gen_expr'
+                          ]
+
 uniqueLabels :: Expr -> Expr
 uniqueLabels e = snd (uniqueLabels' lbls e)
   where lbls = zipWith (++) (cycle ["CC"]) (map show [1..])
@@ -68,7 +84,7 @@ uniqueLabels' (l:lbls) (ACCFaulty _ e)   = let (lbls',e') = uniqueLabels' lbls e
                                            in (lbls',ACCFaulty l e')
 
 instance Arbitrary Expr where
-  arbitrary = sized gen_expr
+  arbitrary = sized gen_exprWeak
   shrink (ACCFaulty l e)  = e : (map (ACCFaulty l) (shrink e))
   shrink (ACCCorrect l e) = e : (map (ACCCorrect l) (shrink e))
   shrink (Lambda n e)     = e : (map (Lambda n) (shrink e))
