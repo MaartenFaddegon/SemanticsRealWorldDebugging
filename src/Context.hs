@@ -3,6 +3,8 @@ module Context where
 import Control.Monad.State
 import Data.Graph.Libgraph
 
+-- import qualified Debug.Trace as Debug
+
 --------------------------------------------------------------------------------
 -- Stack handling: push and call.
 
@@ -29,7 +31,7 @@ call sApp sLam =
        sNew
 
 -- call sApp sLam = sNew
-  where (sPre,sLam',sApp') = commonPrefix sLam sApp -- sApp sLam
+  where (sPre,sApp',sLam') = commonPrefix sApp sLam
         sNew = sLam' ++ sApp
 
 commonPrefix :: Stack -> Stack -> (Stack, Stack, Stack)
@@ -57,12 +59,13 @@ insertHeap x e = modify $ \s -> s{heap = (x,e) : (heap s)}
 deleteHeap :: Name -> Cxt expr ()
 deleteHeap x = modify $ \s -> s{heap = filter ((/= x) . fst) (heap s)}
 
-lookupHeap :: Name -> Cxt expr (Stack,ExprExc expr)
+lookupHeap :: Show expr => Name -> Cxt expr (Stack,ExprExc expr)
 lookupHeap x = do 
   me <- fmap (lookup x . heap) get
   case me of
     Nothing      -> return ([], Exception ("Lookup '" ++ x ++ "' failed"))
     Just (stk,e) -> return (stk,Expression e)
+    -- Just (stk,e) -> return (stk,Debug.trace ("lookup " ++ x ++ " = " ++ show e)Expression e)
 
 --------------------------------------------------------------------------------
 -- Tracing help.
@@ -135,4 +138,9 @@ eval reduce trc expr = do
   if n > 500
     then return (trc,Exception "Giving up after 500 reductions.")
     else reduce trc expr
-    -- else reduce trc (Debug.trace (show n ++ ": " ++ show expr) expr)
+    -- else do
+    --     cxt <- get
+    --     reduce trc (Debug.trace (show n ++ ": " ++ show expr ++ "\n" ++ showcxt cxt) expr)
+
+showcxt :: Show expr => Context expr -> String
+showcxt cxt = "  with heap " ++ show (heap cxt)
