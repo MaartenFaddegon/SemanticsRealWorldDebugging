@@ -97,9 +97,6 @@ reduce trc (Var x) = do
         Expression v  -> do
           stkv <- gets stack
           insertHeap x (stkv,v)
-          -- MF TODO: Need to check this (here and for TraceSemantics). I think
-          -- that Simon Marlow reverts back to stk here. But that certainly
-          -- leads to weird stacks. Try e3 for example.
           setStack stk
           eval reduce trcv (Var x)
 
@@ -218,11 +215,18 @@ e6' = ACCCorrect "root"
          )
       )
 
+-- Demonstrates that it is important to consider 'call' as well when
+-- adding dependencies based on the cost centre stack.
+e7 = 
+  ACCCorrect "root"
+  (Let 
+    ("f",ACCCorrect "F1" (Lambda "x" (ACCFaulty "F2" (Const Right))))
+    (Apply 
+      (ACCCorrect "IN" (Lambda "y" (Apply (Var "y") "z")))
+    "f"
+    )
+  )
 
-e7 =  ACCCorrect "root" 
-        (Apply 
-          (Let 
-            ("x",ACCFaulty "A" (Lambda "x"(ACCFaulty "B" (Const Right)))) 
-            (ACCFaulty "C" (Let ("z",Apply (Lambda "x" (Const Right)) "z") (Var "z")))
-          ) "a"
-        )
+-- Behaves weird: their are two records that claim to are the arg-value of the
+-- same parent-record!
+e8 = Apply (Lambda "x" (Let ("z",Const Right) (Apply (Let ("y",Apply (Lambda "y" (ACCCorrect "D" (Lambda "z" (ACCFaulty "G" (Var "y"))))) "z") (Apply (Var "y") "y")) "x"))) "z"

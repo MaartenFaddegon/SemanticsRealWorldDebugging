@@ -83,7 +83,8 @@ reduce trc (Var x) = do
         Expression v  -> do
           stkv <- gets stack
           insertHeap x (stkv,v)
-          eval reduce trcv (Var x) 
+          setStack stk
+          eval reduce trcv (Var x)
 
 reduce trc (ACC l e) = do
   stk <- gets stack
@@ -101,7 +102,7 @@ reduce trc (Observed l s p e) = do
       return (trace (Record l s uid p (show v)) trc',e')
     Expression (Lambda x e) -> do
       uid <- getUniq
-      let x' = "_" ++ x; x'' = "__" ++ x
+      let x' = "_1" ++ x; x'' = "_2" ++ x
           body = Let (x',Observed l stk (ArgOf uid) (Var x'')) 
                      (Apply (Lambda x (Observed l s (ResOf uid) e)) x')
           trc'' = trace (Record l s uid p "\\") trc'
@@ -129,12 +130,12 @@ sub n m n' = if n == n' then m else n'
 
 type CompGraph = Graph (Vertex String)
 
-tracedEval :: Expr -> (ExprExc Expr,CompGraph)
-tracedEval = mkGraph . mkEquations . (evalWith reduce)
-
 disp :: Expr -> IO ()
-disp = (display shw) . snd . tracedEval
-  where shw :: CompGraph -> String
+disp expr = do 
+  putStr messages
+  (display shw) . snd . mkGraph . mkEquations $ (reduct,trc)
+  where (reduct,trc,messages) = evalWith' reduce expr
+        shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
         showVertex = (foldl (++) "") . (map showRecord)
         showRecord = recordValue
@@ -172,3 +173,8 @@ e6 =  ACC "main"
                   )
             )
       )
+
+
+-- Behaves weird: their are two records that claim to are the arg-value of the
+-- same parent-record!
+e8 = Apply (Lambda "x" (Let ("z",Const 42) (Apply (Let ("y",Apply (Lambda "y" (ACC"D" (Lambda "z" (ACC"G" (Var "y"))))) "z") (Apply (Var "y") "y")) "x"))) "z"

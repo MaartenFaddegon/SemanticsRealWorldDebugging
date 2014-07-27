@@ -3,7 +3,7 @@ module Context where
 import Control.Monad.State
 import Data.Graph.Libgraph
 
--- import qualified Debug.Trace as Debug
+import qualified Debug.Trace as Debug
 
 --------------------------------------------------------------------------------
 -- Stack handling: push and call.
@@ -91,8 +91,9 @@ getUniq = do
   return i
 
 
-trace :: Record value -> Trace value -> Trace value
-trace = (:)
+trace :: Show value => Record value -> Trace value -> Trace value
+-- trace = (:)
+trace r = (:) $ Debug.trace ("trace " ++ show r) r
 
 thd :: (a,b,c) -> c
 thd (_,_,z) = z
@@ -105,13 +106,18 @@ successors trc merge rec = merge rec arg res
   where arg = suc ArgOf
         res = suc ResOf
         suc con = case filter (\chd -> recordParent chd == con (recordUID rec)) trc of
-          []  -> Nothing
+          []    -> Nothing
           [chd] -> Just (successors trc merge chd)
 
 
 --------------------------------------------------------------------------------
--- The state.
+-- Logging.
 
+doLog :: String -> Cxt expr ()
+doLog msg = modify $ \cxt -> cxt{cxtlog = (msg ++ "\n") : cxtlog cxt}
+
+--------------------------------------------------------------------------------
+-- The state.
 
 type ReduceRule value expr = Trace value -> expr -> Cxt expr (Trace value,ExprExc expr)
 
@@ -122,13 +128,21 @@ data Context expr = Context { heap           :: !(Heap expr)
                             , stack          :: !Stack
                             , uniq           :: !Int
                             , reductionCount :: !Int
+                            , cxtlog         :: ![String]
                             }
 
 type Cxt expr res = State (Context expr) res
 
+
+evalWith' :: Show expr
+          => ReduceRule value expr -> expr -> (Trace value,ExprExc expr,String)
+evalWith' reduce redex =
+  let (res,cxt) = runState (eval reduce [] redex) (Context [] [] 0 0 [])
+  in (fst res, snd res, foldl (++) "" . reverse . cxtlog $ cxt)
+
 evalWith :: Show expr
          => ReduceRule value expr -> expr -> (Trace value,ExprExc expr)
-evalWith reduce expr = evalState (eval reduce [] expr) (Context [] [] 0 0)
+evalWith reduce expr = let (trc,reduct,_) = evalWith' reduce expr in (trc,reduct)
 
 eval :: Show expr =>
         ReduceRule value expr -> Trace value -> expr -> Cxt expr (Trace value,ExprExc expr)
@@ -137,10 +151,8 @@ eval reduce trc expr = do
   modify $ \s -> s {reductionCount = n+1}
   if n > 500
     then return (trc,Exception "Giving up after 500 reductions.")
-    else reduce trc expr
-    -- else do
-    --     cxt <- get
-    --     reduce trc (Debug.trace (show n ++ ": " ++ show expr ++ "\n" ++ showcxt cxt) expr)
-
-showcxt :: Show expr => Context expr -> String
-showcxt cxt = "  with heap " ++ show (heap cxt)
+    else do
+        doLog (show n ++ ": " ++ show expr)
+        -- cxt <- get
+        -- doLog ("  with heap " ++ show (heap cxt))
+        reduce trc expr
