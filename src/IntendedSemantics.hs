@@ -51,88 +51,87 @@ data Expr = Const    Judgement
 --------------------------------------------------------------------------------
 -- Reduction rules.
 
-reduce :: ReduceRule Judgement Expr
+reduce :: ReduceRule Expr Judgement 
 
-reduce trc (Const v) = 
-  return (trc,Expression (Const v))
+reduce (Const v) = 
+  return (Expression (Const v))
 
-reduce trc (Lambda x e) = 
-  return (trc,Expression $ Lambda x e)
+reduce (Lambda x e) = 
+  return (Expression $ Lambda x e)
 
-reduce trc (Let (x,e1) e2) = do
+reduce (Let (x,e1) e2) = do
   stk <- gets stack
   insertHeap x (stk,e1)
-  result <- reduce trc e2
+  result <- reduce e2
   deleteHeap x
   return result
 
-reduce trc (Apply f x) = do
-  (trc_lam, e) <- eval reduce trc f
+reduce (Apply f x) = do
+  e <- eval reduce f
   case e of 
-    Expression (Lambda y e) -> do
-      -- let e' = subst y x e
-      -- eval reduce trc_lam (Debug.trace ("subst " ++ show e ++ " = " ++ show e') e')
-      eval reduce trc_lam (subst y x e)
-    Exception msg           -> return (trc_lam,Exception msg)
-    _                       -> return (trc_lam,Exception "Apply non-Lambda?")
+    Expression (Lambda y e) -> eval reduce (subst y x e)
+    Exception msg           -> return (Exception msg)
+    _                       -> return (Exception "Apply non-Lambda?")
 
-reduce trc (Var x) = do
+reduce (Var x) = do
   r <- lookupHeap x
   case r of
     (stk,Exception msg) -> do
       setStack stk
-      return (trc,Exception msg)
+      return (Exception msg)
     (stk,Expression (Const v)) -> do
       setStack stk
-      return (trc,Expression (Const v))
+      return (Expression (Const v))
     (stk,Expression (Lambda y e)) -> do
       doCall stk
-      return (trc,Expression (Lambda y e))
+      return (Expression (Lambda y e))
     (stk,Expression e) -> do
       deleteHeap x
       setStack stk
-      (trcv,v') <- eval reduce trc e
+      v' <- eval reduce e
       case v' of
-        Exception msg -> return (trcv,Exception msg)
+        Exception msg -> return (Exception msg)
         Expression v  -> do
           stkv <- gets stack
           insertHeap x (stkv,v)
           setStack stk
-          eval reduce trcv (Var x)
+          eval reduce (Var x)
 
-reduce trc (ACCCorrect l e) = do
+reduce (ACCCorrect l e) = do
   stk <- gets stack
   doPush l
-  eval reduce trc (Observed l stk Root e)
+  eval reduce (Observed l stk Root e)
 
-reduce trc (ACCFaulty l e) = do
+reduce (ACCFaulty l e) = do
   stk <- gets stack
   doPush l
   uid <- getUniq
-  r <- eval reduce (trace (Record l stk uid Root Wrong) trc) e
+  trace (Record l stk uid Root Wrong)
+  r <- eval reduce e
   case r of
-    (trc,Expression (Const jmt)) -> return (trc,Expression (Const Wrong))
-    _                            -> return r
+    (Expression (Const jmt)) -> return (Expression (Const Wrong))
+    _                        -> return r
 
 
-reduce trc (Observed l s p e) = do
+reduce (Observed l s p e) = do
   stk <- gets stack
-  (trc',e') <- eval reduce trc e
+  e' <- eval reduce e
   case e' of
     Exception msg ->
-      return (trc',Exception msg)
+      return (Exception msg)
     Expression (Const v) -> do
       uid <- getUniq
-      return (trace (Record l s uid p v) trc',e')
+      trace (Record l s uid p v)
+      return e'
     Expression (Lambda x e) -> do
       uid <- getUniq
-      let x' = "_" ++ x; x'' = "__" ++ x
+      let x' = "_1" ++ x; x'' = "_2" ++ x
           body = Let (x',Observed l stk (ArgOf uid) (Var x'')) 
                      (Apply (Lambda x (Observed l s (ResOf uid) e)) x')
-          trc'' = trace (Record l s uid p Right) trc'
-      return (trc'',Expression (Lambda x'' body))
+      trace (Record l s uid p Right)
+      return (Expression (Lambda x'' body))
     Expression e -> 
-      return (trc,Exception $ "Observe undefined: " ++ show e)
+      return (Exception $ "Observe undefined: " ++ show e)
 
 --------------------------------------------------------------------------------
 -- Substituting variable names.

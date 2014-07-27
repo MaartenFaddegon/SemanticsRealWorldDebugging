@@ -11,10 +11,10 @@ import qualified Debug.Trace as Debug
 type Label = String
 type Stack = [Label]
 
-setStack :: Stack -> Cxt expr ()
+setStack :: Stack -> Cxt expr value ()
 setStack stk = modify $ \s -> s {stack = stk}
 
-doPush :: Label -> Cxt expr ()
+doPush :: Label -> Cxt expr value ()
 doPush l = modify $ \s -> s {stack = push l (stack s)}
 
 push :: Label -> Stack -> Stack
@@ -22,7 +22,7 @@ push l s
   | l `elem` s = dropWhile (/= l) s
   | otherwise  = l : s
 
-doCall :: Stack -> Cxt expr ()
+doCall :: Stack -> Cxt expr value ()
 doCall sLam = modify $ \s -> s {stack = call (stack s) sLam}
 
 call :: Stack -> Stack -> Stack
@@ -53,13 +53,13 @@ span2 f = s f []
 type Name = String
 type Heap expr = [(Name,(Stack,expr))]
 
-insertHeap :: Name -> (Stack,expr) -> Cxt expr ()
+insertHeap :: Name -> (Stack,expr) -> Cxt expr value ()
 insertHeap x e = modify $ \s -> s{heap = (x,e) : (heap s)}
 
-deleteHeap :: Name -> Cxt expr ()
+deleteHeap :: Name -> Cxt expr value ()
 deleteHeap x = modify $ \s -> s{heap = filter ((/= x) . fst) (heap s)}
 
-lookupHeap :: Show expr => Name -> Cxt expr (Stack,ExprExc expr)
+lookupHeap :: Show expr => Name -> Cxt expr value (Stack,ExprExc expr)
 lookupHeap x = do 
   me <- fmap (lookup x . heap) get
   case me of
@@ -84,16 +84,16 @@ type UID = Int
 
 data Parent = Root | ArgOf UID | ResOf UID deriving (Show,Eq,Ord)
 
-getUniq :: Cxt expr UID
+getUniq :: Cxt expr value UID
 getUniq = do
   i <- gets uniq
   modify $ \cxt -> cxt { uniq = i + 1 }
   return i
 
-
-trace :: Show value => Record value -> Trace value -> Trace value
--- trace = (:)
-trace r = (:) $ Debug.trace ("trace " ++ show r) r
+trace :: Show value => Record value -> Cxt expr value ()
+trace rec = do
+  doLog $ " * " ++ show rec
+  modify $ \cxt -> cxt{cxtTrace = rec : cxtTrace cxt}
 
 thd :: (a,b,c) -> c
 thd (_,_,z) = z
@@ -113,46 +113,52 @@ successors trc merge rec = merge rec arg res
 --------------------------------------------------------------------------------
 -- Logging.
 
-doLog :: String -> Cxt expr ()
-doLog msg = modify $ \cxt -> cxt{cxtlog = (msg ++ "\n") : cxtlog cxt}
+doLog :: String -> Cxt expr value ()
+doLog msg = modify $ \cxt -> cxt{cxtLog = (msg ++ "\n") : cxtLog cxt}
 
 --------------------------------------------------------------------------------
 -- The state.
 
-type ReduceRule value expr = Trace value -> expr -> Cxt expr (Trace value,ExprExc expr)
+type ReduceRule expr value = expr -> Cxt expr value (ExprExc expr)
 
 data ExprExc expr = Exception String | Expression expr
                   deriving (Show,Eq)
 
-data Context expr = Context { heap           :: !(Heap expr)
-                            , stack          :: !Stack
-                            , uniq           :: !Int
-                            , reductionCount :: !Int
-                            , cxtlog         :: ![String]
-                            }
+data Context expr value 
+  = Context { heap           :: !(Heap expr)
+            , stack          :: !Stack
+            , uniq           :: !Int
+            , reductionCount :: !Int
+            , depth          :: !Int
+            , cxtTrace       :: !(Trace value)
+            , cxtLog         :: ![String]
+            }
 
-type Cxt expr res = State (Context expr) res
-
+type Cxt expr value res = State (Context expr value) res
 
 evalWith' :: Show expr
-          => ReduceRule value expr -> expr -> (Trace value,ExprExc expr,String)
+          => ReduceRule expr value -> expr -> (Trace value,ExprExc expr,String)
 evalWith' reduce redex =
-  let (res,cxt) = runState (eval reduce [] redex) (Context [] [] 0 0 [])
-  in (fst res, snd res, foldl (++) "" . reverse . cxtlog $ cxt)
+  let (res,cxt) = runState (eval reduce redex) (Context [] [] 0 0 1 [] [])
+  in (cxtTrace cxt, res, foldl (++) "" . reverse . cxtLog $ cxt)
 
 evalWith :: Show expr
-         => ReduceRule value expr -> expr -> (Trace value,ExprExc expr)
+         => ReduceRule expr value -> expr -> (Trace value,ExprExc expr)
 evalWith reduce expr = let (trc,reduct,_) = evalWith' reduce expr in (trc,reduct)
 
 eval :: Show expr =>
-        ReduceRule value expr -> Trace value -> expr -> Cxt expr (Trace value,ExprExc expr)
-eval reduce trc expr = do 
+        ReduceRule expr value -> expr -> Cxt expr value (ExprExc expr)
+eval reduce expr = do 
   n <- gets reductionCount
   modify $ \s -> s {reductionCount = n+1}
   if n > 500
-    then return (trc,Exception "Giving up after 500 reductions.")
+    then return (Exception "Giving up after 500 reductions.")
     else do
-        doLog (show n ++ ": " ++ show expr)
-        -- cxt <- get
-        -- doLog ("  with heap " ++ show (heap cxt))
-        reduce trc expr
+        d <- gets depth
+        modify $ \cxt -> cxt{depth=d+1}
+        doLog (showd d ++ show n ++ ": " ++ show expr)
+        reduct <- reduce expr
+        modify $ \cxt -> cxt{depth=d}
+        return reduct
+  where showd 0 = ""
+        showd n = '|' : showd (n-1)
