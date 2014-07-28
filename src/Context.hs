@@ -98,7 +98,10 @@ trace rec = do
 thd :: (a,b,c) -> c
 thd (_,_,z) = z
 
- 
+-- MF TODO: in some weird cases it seems to happen that there are multiple children.
+-- I now just pick the first put that may not be what we really want. This
+-- may be related to our not so sophisticated scope rules (should we implement
+-- freshen?).
 successors :: Trace repr
            -> (Record repr -> Maybe (Record repr) -> Maybe (Record repr) -> Record repr)
            -> Record repr -> Record repr
@@ -107,7 +110,7 @@ successors trc merge rec = merge rec arg res
         res = suc ResOf
         suc con = case filter (\chd -> recordParent chd == con (recordUID rec)) trc of
           []    -> Nothing
-          [chd] -> Just (successors trc merge chd)
+          chd:_ -> Just (successors trc merge chd)
 
 
 --------------------------------------------------------------------------------
