@@ -144,22 +144,17 @@ disp expr = do
         showRecord = recordValue
         showArc _  = ""
 
--- run' = evalWith' reduce
-
 e1 = ACC "A" (Const 42)
 
 e2 = Let ("x", Const 42) (ACC "X" (Var "x"))
 
 e3 = Let ("i", (Const 42)) 
-         (Apply (Lambda "x" (Var "x")) "i")
-
-e4 = Let ("i", (Const 42)) 
          (Apply (ACC "lam" (Lambda "x" (Var "x"))) "i")
 
-e5 = Let ("i", (Const 42)) 
+e4 = Let ("i", (Const 42)) 
          (Apply (ACC "lam" (Lambda "x" (Const 1))) "i")
 
-e6 =  ACC "main"
+e5 =  ACC "main"
       ( Let ("i", (Const 42)) 
             ( Let ("id",ACC "id" (Lambda "y" (Var "y")))
                   ( Apply 
@@ -177,10 +172,23 @@ e6 =  ACC "main"
             )
       )
 
+-- Demonstrates that it is important to consider 'call' as well when
+-- adding dependencies based on the cost centre stack.
+e6 = 
+  ACC "root"
+  (Let 
+    ("f",ACC "F1" (Lambda "x" (ACC "F2" (Const 1))))
+    (Apply 
+      (ACC "IN" (Lambda "y" (Apply (Var "y") "z")))
+    "f"
+    )
+  )
 
--- Behaves weird: their are two records that claim to are the arg-value of the
--- same parent-record!
-e8' = Apply
+-- A demonstration of 'strange behaviour' because we don't properly
+-- freshen our varibles: scopes don't work as we would expect them to.
+-- In this case it results in two records that claim to are the arg-value of
+-- the same parent-record.
+e7 = Apply
       (Lambda "x"
         (Let
           ("z",Const 42) 
@@ -192,7 +200,4 @@ e8' = Apply
             "x"
           )
         )
-      )
-
-e8_bad = e8' "z"
-e8_good = e8' "a"
+      ) "z"  -- Try replacing "z" with "a" here

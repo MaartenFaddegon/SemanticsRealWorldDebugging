@@ -137,7 +137,7 @@ reduce (Observed l s p e) = do
 -- Substituting variable names.
 
 subst :: Name -> Name -> Expr -> Expr
-subst n m (Const v)        = Const v
+subst n m (Const v)          = Const v
 subst n m (Lambda n' e)      = Lambda (sub n m n') (subst n m e)
 subst n m (Apply e n')       = Apply (subst n m e) (sub n m n')
 subst n m (Var n')           = Var (sub n m n')
@@ -152,8 +152,6 @@ sub n m n' = if n == n' then m else n'
 --------------------------------------------------------------------------------
 -- Examples.
 
-type CompGraph = Graph (Vertex String)
-
 findFaulty' :: Graph (Vertex Judgement) -> [Vertex Judgement]
 findFaulty' = findFaulty wrongCC mergeCC
   where mergeCC ws = foldl (++) [] ws
@@ -164,7 +162,7 @@ debug redex = do
   let (reduct,compgraph) = mkGraph . mkEquations . (evalWith reduce) $ redex
   print (findFaulty' compgraph)
 
-tracedEval :: Expr -> (ExprExc Expr,CompGraph)
+tracedEval :: Expr -> (ExprExc Expr,Graph (Vertex String))
 tracedEval = mkGraph . mkEquations' . mkEquations . (evalWith reduce)
 
 disp :: Expr -> IO ()
@@ -173,50 +171,44 @@ disp redex = do
   print reduct
   (display shw) compgraph
 
-  where shw :: CompGraph -> String
+  where shw :: (Graph (Vertex String)) -> String
         shw g = showWith g showVertex showArc
         showVertex = (foldl (++) "") . (map showRecord)
-        -- showRecord = thd
         showRecord rec = (recordValue rec) ++ " (with stack "
                         ++ show (recordStack rec) ++ ")\n"
         showArc _  = ""
 
-e1 = ACCFaulty "Z" (ACCFaulty "U" (ACCCorrect "Z" (ACCCorrect "N" (Const Right))))
+e1 = ACCFaulty "A" (Const Right)
 
-e2 = Let ("x",ACCCorrect "letx" (Const Right)) (ACCFaulty "in" (Var "x"))
-e2' = ACCFaulty "root" (Let ("x",ACCCorrect "letx" (Const Right)) (ACCFaulty "in" (Var "x")))
+e2 = Let ("x", Const Right) (ACCFaulty "X" (Var "x"))
 
-e3 = ACCCorrect "A" (ACCCorrect "B"((Let ("z",ACCCorrect "C" (Lambda "y" (ACCCorrect "lam" (Const Right)))) (Let ("x",Let ("y",Apply (Const Right) "x") (ACCFaulty "X" (Let ("x",(Const Right)) (Const Right)))) (Apply (Var "z") "z")))))
+e3 = Let ("i", (Const Right)) 
+         (Apply (ACCFaulty "lam" (Lambda "x" (Var "x"))) "i")
 
+e4 = Let ("i", (Const Right)) 
+         (Apply (ACCFaulty "lam" (Lambda "x" (Const Right))) "i")
 
-e3' = Let ("z",ACCCorrect "C" (Lambda "y" (ACCCorrect "lam" (Const Right)))) 
-          (Apply (Var "z") "z")
-
-e4 = ACCCorrect "root" (Apply (ACCCorrect "N" (Let ("z",Let ("y",Var "y") (ACCCorrect "C" (Lambda "z" (ACCFaulty "N" (Const Right))))) (ACCCorrect "F" (ACCFaulty "V" (ACCCorrect "V" (Var "z")))))) "z")
-
-e5 = ACCCorrect "root" (ACCCorrect "root" (Apply (ACCCorrect "G" (Lambda "x" (ACCCorrect "U" (Let ("y",Lambda "x" (ACCFaulty "Y" (ACCFaulty "B" (ACCCorrect "Y" (Apply (ACCFaulty "D" (Lambda "z" (Apply (Lambda "y" (Const Right)) "x"))) "y"))))) (ACCFaulty "I" (Apply (Let ("z",Apply (Lambda "y" (Apply (Const Right) "x")) "x") (ACCFaulty "V" (ACCCorrect "D" (Var "x")))) "y")))))) "y"))
-
-e6 = ACCCorrect "root" (ACCFaulty "I" (ACCFaulty "W" (Let ("y",Var "x") (Apply (ACCFaulty "V" (Apply (Apply (Let ("x",ACCFaulty "L" (Let ("z",ACCFaulty "K" (Lambda "y" (Const Right))) (Lambda "y" (ACCFaulty "D" (Let ("x",ACCFaulty "W" (ACCCorrect "C" (Const Right))) (ACCCorrect "H" (ACCFaulty "M" (Var "y")))))))) (ACCCorrect "K" (Lambda "z" (Lambda "y" (Var "y"))))) "z") "x")) "x"))))
-
-
-e6' = ACCCorrect "root" 
-      ( (Let ("y",Var "x") 
-          (Apply 
-            (Apply
-              (Apply 
-                (Let 
-                  ("x",ACCFaulty "L" (Lambda "y" (ACCFaulty "C" (Const Right)))) 
-                  (ACCCorrect "Z" (Lambda "z" (Lambda "y" (Var "y"))))
-                ) "z"
-              ) "x"
-            ) "x"
-           )
-         )
+e5 =  ACCCorrect "main"
+      ( Let ("i", (Const Right)) 
+            ( Let ("id",ACCFaulty "id" (Lambda "y" (Var "y")))
+                  ( Apply 
+                    ( Apply 
+                      ( ACCCorrect "h" 
+                        ( Lambda "f" 
+                          ( Lambda "x"
+                            ( Apply (Var "f") "x"
+                            )
+                          )
+                        )
+                      ) "id"
+                    ) "i"
+                  )
+            )
       )
 
 -- Demonstrates that it is important to consider 'call' as well when
 -- adding dependencies based on the cost centre stack.
-e7 = 
+e6 = 
   ACCCorrect "root"
   (Let 
     ("f",ACCCorrect "F1" (Lambda "x" (ACCFaulty "F2" (Const Right))))
@@ -226,6 +218,20 @@ e7 =
     )
   )
 
--- Behaves weird: their are two records that claim to are the arg-value of the
--- same parent-record!
-e8 = Apply (Lambda "x" (Let ("z",Const Right) (Apply (Let ("y",Apply (Lambda "y" (ACCCorrect "D" (Lambda "z" (ACCFaulty "G" (Var "y"))))) "z") (Apply (Var "y") "y")) "x"))) "z"
+-- A demonstration of 'strange behaviour' because we don't properly
+-- freshen our varibles: scopes don't work as we would expect them to.
+-- In this case it results in two records that claim to are the arg-value of
+-- the same parent-record.
+e7 = Apply
+      (Lambda "x"
+        (Let
+          ("z",Const Right)
+          (Apply
+            (Let
+              ("y",Apply (Lambda "y" (ACCCorrect "D" (Lambda "z" (ACCFaulty "G" (Var "y"))))) "z")
+              (Apply (Var "y") "y")
+            )
+            "x"
+          )
+        )
+      ) "z"  -- Try replacing "z" with "a" here
