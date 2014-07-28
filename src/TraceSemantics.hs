@@ -16,16 +16,16 @@ mkEquations (trc,reduct) = (filter isRoot . map (successors trc merge) $ trc,red
 
 merge rec arg res =
   if lam && top
-    then rec {recordValue = recordLabel rec ++ " " ++ val arg ++ " = " ++ val res }
+    then rec {recordRepr = recordLabel rec ++ " " ++ val arg ++ " = " ++ val res }
   else if lam
-    then rec {recordValue = "(\\" ++ val arg ++ " -> " ++ val res ++ ")"}
+    then rec {recordRepr = "(\\" ++ val arg ++ " -> " ++ val res ++ ")"}
   else if top
-    then rec {recordValue = recordLabel rec ++ " = " ++ recordValue rec}
+    then rec {recordRepr = recordLabel rec ++ " = " ++ recordRepr rec}
     else rec
-  where lam = recordValue rec == "\\"
+  where lam = recordRepr rec == "\\"
         top = recordParent rec == Root
         val Nothing = "_"
-        val (Just r) = recordValue r
+        val (Just r) = recordRepr r
 
 --------------------------------------------------------------------------------
 -- Expressions
@@ -141,7 +141,7 @@ disp expr = do
         shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
         showVertex = (foldl (++) "") . (map showRecord)
-        showRecord = recordValue
+        showRecord = recordRepr
         showArc _  = ""
 
 e1 = ACC "A" (Const 42)

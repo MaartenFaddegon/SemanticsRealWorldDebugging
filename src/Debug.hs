@@ -20,13 +20,9 @@ arcsFrom src trc = (map (Arc src)) . (filter couldDependOn) $ trc
                          ++ map (flip couldDependOn2 src) trc
         couldDependOn  = yna couldDependOns
 
-
--- The reverse of any from the prelude
-yna :: [a->Bool] -> a -> Bool
-yna ps x = or (map (\p -> p x) ps)
-
-
-
+        -- The reverse of any
+        yna :: [a->Bool] -> a -> Bool
+        yna ps x = or (map (\p -> p x) ps)
 
 couldDependOn1 :: (Record value) -> (Record value) -> Bool
 couldDependOn1 p c = push (recordLabel p) (recordStack p) == recordStack c

@@ -19,8 +19,8 @@ data Judgement  = Right | Wrong       deriving (Show,Eq,Ord)
 -- To render graphs
 mkEquations' :: (Trace Judgement, e) -> (Trace String, e)
 mkEquations' (trc,reduct) = (map toString trc, reduct)
-  where toString rec = rec {recordValue = (recordLabel rec) ++ " = " 
-                                        ++ (show $ recordValue rec)}
+  where toString rec = rec {recordRepr = (recordLabel rec) ++ " = " 
+                                        ++ (show $ recordRepr rec)}
 
 -- To quickcheck
 mkEquations :: (Trace Judgement, e) -> (Trace Judgement, e)
@@ -29,8 +29,8 @@ mkEquations (trc,reduct) = (filter isRoot . map (successors trc merge) $ trc,red
 
 merge :: Record Judgement -> Maybe (Record Judgement) -> Maybe (Record Judgement)
       -> Record Judgement
-merge rec arg res = rec{recordValue=(recordValue rec) `or` (jmt arg) `or` (jmt res)}
-  where jmt mr = case mr of Just r -> recordValue r; Nothing -> Right
+merge rec arg res = rec{recordRepr=(recordRepr rec) `or` (jmt arg) `or` (jmt res)}
+  where jmt mr = case mr of Just r -> recordRepr r; Nothing -> Right
         or Wrong _ = Wrong
         or _ Wrong = Wrong
         or _ _     = Right
@@ -155,7 +155,7 @@ sub n m n' = if n == n' then m else n'
 findFaulty' :: Graph (Vertex Judgement) -> [Vertex Judgement]
 findFaulty' = findFaulty wrongCC mergeCC
   where mergeCC ws = foldl (++) [] ws
-        wrongCC = foldl (\w r -> case recordValue r of Wrong -> True; _ -> w) False
+        wrongCC = foldl (\w r -> case recordRepr r of Wrong -> True; _ -> w) False
 
 debug :: Expr -> IO ()
 debug redex = do
@@ -174,7 +174,7 @@ disp redex = do
   where shw :: (Graph (Vertex String)) -> String
         shw g = showWith g showVertex showArc
         showVertex = (foldl (++) "") . (map showRecord)
-        showRecord rec = (recordValue rec) ++ " (with stack "
+        showRecord rec = (recordRepr rec) ++ " (with stack "
                         ++ show (recordStack rec) ++ ")\n"
         showArc _  = ""
 
