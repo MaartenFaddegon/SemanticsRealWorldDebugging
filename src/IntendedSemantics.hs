@@ -60,7 +60,7 @@ reduce (Lambda x e) =
   return (Expression $ Lambda x e)
 
 reduce (Let (x,e1) e2) = do
-  stk <- gets stack
+  stk <- gets cxtStack
   insertHeap x (stk,e1)
   result <- reduce e2
   deleteHeap x
@@ -92,18 +92,18 @@ reduce (Var x) = do
       case v' of
         Exception msg -> return (Exception msg)
         Expression v  -> do
-          stkv <- gets stack
+          stkv <- gets cxtStack
           insertHeap x (stkv,v)
           setStack stk
           eval reduce (Var x)
 
 reduce (ACCCorrect l e) = do
-  stk <- gets stack
+  stk <- gets cxtStack
   doPush l
   eval reduce (Observed l stk Root e)
 
 reduce (ACCFaulty l e) = do
-  stk <- gets stack
+  stk <- gets cxtStack
   doPush l
   uid <- getUniq
   trace (Record l stk uid Root Wrong)
@@ -114,7 +114,7 @@ reduce (ACCFaulty l e) = do
 
 
 reduce (Observed l s p e) = do
-  stk <- gets stack
+  stk <- gets cxtStack
   e' <- eval reduce e
   case e' of
     Exception msg ->

@@ -12,10 +12,10 @@ type Label = String
 type Stack = [Label]
 
 setStack :: Stack -> Cxt expr repr ()
-setStack stk = modify $ \s -> s {stack = stk}
+setStack stk = modify $ \s -> s {cxtStack = stk}
 
 doPush :: Label -> Cxt expr repr ()
-doPush l = modify $ \s -> s {stack = push l (stack s)}
+doPush l = modify $ \s -> s {cxtStack = push l (cxtStack s)}
 
 push :: Label -> Stack -> Stack
 push l s
@@ -23,7 +23,7 @@ push l s
   | otherwise  = l : s
 
 doCall :: Stack -> Cxt expr repr ()
-doCall sLam = modify $ \s -> s {stack = call (stack s) sLam}
+doCall sLam = modify $ \s -> s {cxtStack = call (cxtStack s) sLam}
 
 call :: Stack -> Stack -> Stack
 -- MF TODO: look into this, call sApp sLam = sApp ++ sLam'
@@ -54,14 +54,14 @@ type Name = String
 type Heap expr = [(Name,(Stack,expr))]
 
 insertHeap :: Name -> (Stack,expr) -> Cxt expr repr ()
-insertHeap x e = modify $ \s -> s{heap = (x,e) : (heap s)}
+insertHeap x e = modify $ \s -> s{cxtHeap = (x,e) : (cxtHeap s)}
 
 deleteHeap :: Name -> Cxt expr repr ()
-deleteHeap x = modify $ \s -> s{heap = filter ((/= x) . fst) (heap s)}
+deleteHeap x = modify $ \s -> s{cxtHeap = filter ((/= x) . fst) (cxtHeap s)}
 
 lookupHeap :: Show expr => Name -> Cxt expr repr (Stack,ExprExc expr)
 lookupHeap x = do 
-  me <- fmap (lookup x . heap) get
+  me <- fmap (lookup x . cxtHeap) get
   case me of
     Nothing      -> return ([], Exception ("Lookup '" ++ x ++ "' failed"))
     Just (stk,e) -> return (stk,Expression e)
@@ -86,8 +86,8 @@ data Parent = Root | ArgOf UID | ResOf UID deriving (Show,Eq,Ord)
 
 getUniq :: Cxt expr repr UID
 getUniq = do
-  i <- gets uniq
-  modify $ \cxt -> cxt { uniq = i + 1 }
+  i <- gets cxtUniq
+  modify $ \cxt -> cxt { cxtUniq = i + 1 }
   return i
 
 trace :: Show repr => Record repr -> Cxt expr repr ()
@@ -125,13 +125,14 @@ data ExprExc expr = Exception String | Expression expr
                   deriving (Show,Eq)
 
 data Context expr repr 
-  = Context { heap           :: !(Heap expr)
-            , stack          :: !Stack
-            , uniq           :: !Int
-            , reductionCount :: !Int
-            , depth          :: !Int
-            , cxtTrace       :: !(Trace repr)
-            , cxtLog         :: ![String]
+  = Context { cxtHeap   :: !(Heap expr)
+            , cxtStack  :: !Stack
+            , cxtUniq   :: !Int
+            , cxtTrace  :: !(Trace repr)
+
+            , cxtCount  :: !Int          -- Number of expressions reduced
+            , cxtDepth  :: !Int          -- At what subexrpression-level are we reducing
+            , cxtLog    :: ![String]     -- Sequential log of redexes and trace messages
             }
 
 type Cxt expr repr res = State (Context expr repr) res
@@ -139,7 +140,7 @@ type Cxt expr repr res = State (Context expr repr) res
 evalWith' :: Show expr
           => ReduceRule expr repr -> expr -> (Trace repr,ExprExc expr,String)
 evalWith' reduce redex =
-  let (res,cxt) = runState (eval reduce redex) (Context [] [] 0 0 1 [] [])
+  let (res,cxt) = runState (eval reduce redex) (Context [] [] 1 [] 0 0 [])
   in (cxtTrace cxt, res, foldl (++) "" . reverse . cxtLog $ cxt)
 
 evalWith :: Show expr
@@ -149,16 +150,16 @@ evalWith reduce expr = let (trc,reduct,_) = evalWith' reduce expr in (trc,reduct
 eval :: Show expr =>
         ReduceRule expr repr -> expr -> Cxt expr repr (ExprExc expr)
 eval reduce expr = do 
-  n <- gets reductionCount
-  modify $ \s -> s {reductionCount = n+1}
+  n <- gets cxtCount
+  modify $ \s -> s {cxtCount = n+1}
   if n > 500
     then return (Exception "Giving up after 500 reductions.")
     else do
-        d <- gets depth
-        modify $ \cxt -> cxt{depth=d+1}
+        d <- gets cxtDepth
+        modify $ \cxt -> cxt{cxtDepth=d+1}
         doLog (showd d ++ show n ++ ": " ++ show expr)
         reduct <- reduce expr
-        modify $ \cxt -> cxt{depth=d}
+        modify $ \cxt -> cxt{cxtDepth=d}
         return reduct
   where showd 0 = ""
         showd n = '|' : showd (n-1)
