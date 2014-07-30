@@ -15,22 +15,21 @@ mkGraph' trace = Graph (head roots)
 
 arcsFrom :: (Record value) -> Trace value -> [Arc (Record value)]
 arcsFrom src trc = (map (Arc src)) . (filter couldDependOn) $ trc
-  where couldDependOns = couldDependOn1 src 
-                         :  map (couldDependOn2 src) trc
-                         ++ map (flip couldDependOn2 src) trc
+  where couldDependOns = pushDependency src 
+                         :  map (callDependency src) trc
+                         ++ map (flip callDependency src) trc
         couldDependOn  = yna couldDependOns
 
         -- The reverse of any
         yna :: [a->Bool] -> a -> Bool
         yna ps x = or (map (\p -> p x) ps)
 
-couldDependOn1 :: (Record value) -> (Record value) -> Bool
-couldDependOn1 p c = push (recordLabel p) (recordStack p) == recordStack c
 
-couldDependOn2 :: (Record value) -> (Record value) -> (Record value) -> Bool
-couldDependOn2 p1 p2 c = let s = push (recordLabel p1) (recordStack p1)
-                             t = push (recordLabel p2) (recordStack p2)
-                         in call s t == recordStack c
+nextStack :: (Record value) -> Stack
+nextStack rec = push (recordLabel rec) (recordStack rec)
 
+pushDependency :: (Record value) -> (Record value) -> Bool
+pushDependency p c = nextStack p == recordStack c
 
-
+callDependency :: (Record value) -> (Record value) -> (Record value) -> Bool
+callDependency p q c = call (nextStack p) (nextStack q) == recordStack c
