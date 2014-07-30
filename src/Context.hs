@@ -59,7 +59,7 @@ insertHeap x e = modify $ \s -> s{cxtHeap = (x,e) : (cxtHeap s)}
 deleteHeap :: Name -> Cxt expr repr ()
 deleteHeap x = modify $ \s -> s{cxtHeap = filter ((/= x) . fst) (cxtHeap s)}
 
-lookupHeap :: Show expr => Name -> Cxt expr repr (Stack,ExprExc expr)
+lookupHeap :: Show expr => Name -> Cxt expr repr (Stack,WithExc expr)
 lookupHeap x = do 
   me <- fmap (lookup x . cxtHeap) get
   case me of
@@ -122,9 +122,9 @@ doLog msg = modify $ \cxt -> cxt{cxtLog = (msg ++ "\n") : cxtLog cxt}
 --------------------------------------------------------------------------------
 -- The state.
 
-type ReduceRule expr repr = expr -> Cxt expr repr (ExprExc expr)
+type ReduceRule expr repr = expr -> Cxt expr repr (WithExc expr)
 
-data ExprExc expr = Exception String | Expression expr
+data WithExc expr = Exception String | Expression expr
                   deriving (Show,Eq)
 
 data Context expr repr 
@@ -141,17 +141,17 @@ data Context expr repr
 type Cxt expr repr res = State (Context expr repr) res
 
 evalWith' :: Show expr
-          => ReduceRule expr repr -> expr -> (Trace repr,ExprExc expr,String)
+          => ReduceRule expr repr -> expr -> (Trace repr,WithExc expr,String)
 evalWith' reduce redex =
   let (res,cxt) = runState (eval reduce redex) (Context [] [] 1 [] 0 0 [])
   in (cxtTrace cxt, res, foldl (++) "" . reverse . cxtLog $ cxt)
 
 evalWith :: Show expr
-         => ReduceRule expr repr -> expr -> (Trace repr,ExprExc expr)
+         => ReduceRule expr repr -> expr -> (Trace repr,WithExc expr)
 evalWith reduce expr = let (trc,reduct,_) = evalWith' reduce expr in (trc,reduct)
 
 eval :: Show expr =>
-        ReduceRule expr repr -> expr -> Cxt expr repr (ExprExc expr)
+        ReduceRule expr repr -> expr -> Cxt expr repr (WithExc expr)
 eval reduce expr = do 
   n <- gets cxtCount
   modify $ \s -> s {cxtCount = n+1}
