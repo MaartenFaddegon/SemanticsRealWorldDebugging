@@ -133,7 +133,7 @@ sub n m n' = if n == n' then m else n'
 
 type CompGraph = Graph (Vertex String)
 
-tracedEval :: Expr -> (ExprExc Expr,CompGraph)
+tracedEval :: Expr -> (WithExc Expr,CompGraph)
 tracedEval = mkGraph . mkEquations . toTuple . (evalWith' reduce)
   where toTuple (x,y,_) = (x,y)
 

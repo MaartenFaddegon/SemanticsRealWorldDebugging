@@ -162,7 +162,7 @@ debug redex = do
   let (reduct,compgraph) = mkGraph . mkEquations . (evalWith reduce) $ redex
   print (findFaulty' compgraph)
 
-tracedEval :: Expr -> (ExprExc Expr,Graph (Vertex String))
+tracedEval :: Expr -> (WithExc Expr,Graph (Vertex String))
 tracedEval = mkGraph . mkEquations' . mkEquations . (evalWith reduce)
 
 disp :: Expr -> IO ()
