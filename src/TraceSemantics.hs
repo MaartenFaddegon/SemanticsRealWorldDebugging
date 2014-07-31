@@ -6,13 +6,13 @@ import Data.Graph.Libgraph
 --------------------------------------------------------------------------------
 -- Expressions
 
-data Expr = ACC      Label Expr
-          | Observed Label Stack Parent Expr
-          | Const    Int
-          | Lambda   Name Expr
-          | Apply    Expr Name
-          | Var      Name
-          | Let      (Name,Expr) Expr
+data Expr = ACC       Label Expr
+          | Observed  Label Stack Parent Expr
+          | Const     Int
+          | Lambda    Name Expr
+          | Apply     Expr Name
+          | Var       Name
+          | Let       (Name,Expr) Expr
           | Exception String
           deriving (Show,Eq)
 
