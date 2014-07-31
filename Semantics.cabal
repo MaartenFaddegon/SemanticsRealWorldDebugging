@@ -17,6 +17,5 @@ library
   Build-Depends:     base, libgraph, monads-tf
   exposed-modules:   TraceSemantics
   hs-source-dirs:    src
-  other-modules:     Context
+  other-modules:     Context, SimpleSemantics
   default-language:  Haskell2010
-
