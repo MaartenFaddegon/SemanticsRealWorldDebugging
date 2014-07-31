@@ -253,7 +253,6 @@ mkEquations :: (Expr,Trace) -> (Expr,Trace)
 mkEquations (reduct,trc) = (reduct,filter isRoot . map (successors trc merge) $ trc)
   where isRoot = (== Root) . recordParent
 
-
 merge rec arg res =
   if lam && top
     then rec {recordRepr = recordLabel rec ++ " " ++ val arg ++ " = " ++ val res }

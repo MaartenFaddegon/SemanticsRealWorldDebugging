@@ -1,11 +1,8 @@
 import IntendedSemantics
-
 import Control.Monad.State(liftM,liftM2,liftM3)
 import Prelude hiding (Right)
 import Test.QuickCheck
 import Data.Graph.Libgraph
-import Context
-import Debug
 
 --------------------------------------------------------------------------------
 -- Algorithmic debugging from a trace
@@ -13,7 +10,7 @@ import Debug
 faultyNodes :: Expr -> [Label]
 faultyNodes = getLabels . findFaulty' . snd . mkGraph . mkEquations . (evalWith reduce)
 
-getLabels :: [Vertex Judgement] -> [Label]
+getLabels :: [[Record]] -> [Label]
 getLabels = foldl accLabels []
   where accLabels acc v = acc ++ getLabels' v
         getLabels' = map recordLabel
@@ -102,7 +99,7 @@ instance Arbitrary Expr where
 
 -- MF TODO: should we really allow any redex that doesn't throw an expression?
 propValidExpr :: Expr -> Bool
-propValidExpr e = case snd (evalWith reduce e) of Expression _ -> True; _ -> False
+propValidExpr e = case fst (evalWith reduce e) of (Exception _) -> False; _ -> True
 
 propExact :: Expr -> Bool
 propExact e = faultyNodes e == faultyExprs e
@@ -117,9 +114,9 @@ propFoundFaulty :: Expr -> Bool
 propFoundFaulty e = faultyNodes e /= []
 
 propIsWrong :: Expr -> Bool
-propIsWrong e = case snd (evalWith reduce e) of
-  (Expression (Const Wrong)) -> True
-  _                          -> False
+propIsWrong e = case fst (evalWith reduce e) of
+  (Const Wrong) -> True
+  _             -> False
 
 propFaultyIfWrong e = propIsWrong e ==> propFoundFaulty e
 
