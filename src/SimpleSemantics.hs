@@ -16,20 +16,19 @@ data Expr = Const     Int
 --------------------------------------------------------------------------------
 -- The state.
 
-
 data Context = Context { heap           :: !Heap
-                       , reductionCount :: !Int
                        , depth          :: !Int
-                       , cxtLog         :: ![String]
+                       , reductionCount :: !Int
+                       , reduceLog      :: ![String]
                        }
 
 doLog :: String -> State Context ()
-doLog msg = modify $ \cxt -> cxt{cxtLog = (msg ++ "\n") : cxtLog cxt}
+doLog msg = modify $ \cxt -> cxt{reduceLog = (msg ++ "\n") : reduceLog cxt}
 
 evalWith' :: (Expr -> State Context Expr) -> Expr -> (Expr,String)
 evalWith' reduce redex =
   let (res,cxt) = runState (eval reduce redex) (Context [] 0 1 [])
-  in  (res, foldl (++) "" . reverse . cxtLog $ cxt)
+  in  (res, foldl (++) "" . reverse . reduceLog $ cxt)
 
 evalWith :: (Expr -> State Context Expr) -> Expr -> Expr
 evalWith reduce redex = evalState (eval reduce redex) (Context [] 0 1 [])
