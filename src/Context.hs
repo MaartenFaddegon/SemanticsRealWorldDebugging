@@ -148,7 +148,9 @@ evalWith' reduce redex =
 
 evalWith :: Show expr
          => ReduceRule expr repr -> expr -> (Trace repr,WithExc expr)
-evalWith reduce expr = let (trc,reduct,_) = evalWith' reduce expr in (trc,reduct)
+-- evalWith reduce expr = let (trc,reduct,_) = evalWith' reduce expr in (trc,reduct)
+evalWith reduce redex = (cxtTrace cxt, reduct)
+  where (reduct,cxt) = runState (eval reduce redex) (Context [] [] 1 [] 0 0 [])
 
 eval :: Show expr =>
         ReduceRule expr repr -> expr -> Cxt expr repr (WithExc expr)
