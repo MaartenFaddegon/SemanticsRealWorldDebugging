@@ -97,13 +97,8 @@ doCall :: Stack -> State Context ()
 doCall sLam = modify $ \s -> s {stack = call (stack s) sLam}
 
 call :: Stack -> Stack -> Stack
--- MF TODO: look into this, call sApp sLam = sApp ++ sLam'
-call sApp sLam =
-       sNew
-
--- call sApp sLam = sNew
+call sApp sLam = sLam' ++ sApp
   where (sPre,sApp',sLam') = commonPrefix sApp sLam
-        sNew = sLam' ++ sApp
 
 commonPrefix :: Stack -> Stack -> (Stack, Stack, Stack)
 commonPrefix sApp sLam
@@ -300,6 +295,7 @@ arcsFrom src trc = (map (Arc src)) . (filter couldDependOn) $ trc
   where couldDependOns = pushDependency src 
                          :  map (callDependency src) trc
                          ++ map (flip callDependency src) trc
+                         -- : []
         couldDependOn  = yna couldDependOns
 
         -- The reverse of any
@@ -314,7 +310,7 @@ pushDependency :: Record -> Record -> Bool
 pushDependency p c = nextStack p == recordStack c
 
 callDependency :: Record -> Record -> Record -> Bool
-callDependency p q c = call (nextStack p) (nextStack q) == recordStack c
+callDependency pApp pLam c = call (nextStack pApp) (nextStack pLam) == recordStack c
 
 --------------------------------------------------------------------------------
 -- Examples.
@@ -326,7 +322,7 @@ findFaulty' = findFaulty wrongCC mergeCC
 
 debug :: Expr -> IO ()
 debug redex = do
-  let (reduct,compgraph) = mkGraph . mkEquations . (evalWith reduce) $ redex
+  let (reduct,compgraph) = tracedEval redex
   print (findFaulty' compgraph)
 
 tracedEval :: Expr -> (Expr,CompGraph)
@@ -341,8 +337,8 @@ disp redex = do
   where shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
         showVertex = (foldl (++) "") . (map showRecord)
-        showRecord rec = show (recordRepr rec) ++ " (with stack "
-                        ++ show (recordStack rec) ++ ")\n"
+        showRecord rec = recordLabel rec ++ " = " ++ show (recordRepr rec) 
+                         ++ " (with stack " ++ show (recordStack rec) ++ ")\n"
         showArc _  = ""
 
 e1 = ACCFaulty "A" (Const Right)
@@ -402,3 +398,10 @@ e7 = Apply
           )
         )
       ) "z"  -- Try replacing "z" with "a" here
+
+
+e8 = ACCCorrect "root"
+        (Apply (Lambda "x" 
+                (Let ("y",Apply (Lambda "y" (ACCFaulty "CC1" (Const Right))) "y") 
+                (Apply (Apply (Lambda "x" (Lambda "z" (Apply (Lambda "z" (ACCCorrect "CC2" (Var "y"))) "x"))) "z") "y"))
+                ) "x")

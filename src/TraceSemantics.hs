@@ -29,7 +29,11 @@ data Context = Context { trace          :: !Trace
                        }
 
 doLog :: String -> State Context ()
-doLog msg = modify $ \cxt -> cxt{reduceLog = (msg ++ "\n") : reduceLog cxt}
+doLog msg = do
+  d <- gets depth
+  modify $ \cxt -> cxt{reduceLog = (showd d ++ msg ++ "\n") : reduceLog cxt}
+  where showd 0 = " "
+        showd n = '|' : showd (n-1)
 
 evalWith' :: (Expr -> State Context Expr) -> Expr -> (Expr,Trace,String)
 evalWith' reduce redex = (reduct,trace cxt,foldl (++) "" . reverse . reduceLog $ cxt)
@@ -48,12 +52,10 @@ eval reduce expr = do
     else do
         d <- gets depth
         modify $ \cxt -> cxt{depth=d+1}
-        doLog (showd d ++ show n ++ ": " ++ show expr)
+        doLog (show n ++ ": " ++ show expr)
         reduct <- reduce expr
         modify $ \cxt -> cxt{depth=d}
         return reduct
-  where showd 0 = ""
-        showd n = '|' : showd (n-1)
 
 --------------------------------------------------------------------------------
 -- Manipulating the heap.
@@ -62,7 +64,9 @@ type Name = String
 type Heap = [(Name,(Stack,Expr))]
 
 insertHeap :: Name -> (Stack,Expr) -> State Context ()
-insertHeap x e = modify $ \s -> s{heap = (x,e) : (heap s)}
+insertHeap x e = do
+  modify $ \s -> s{heap = (x,e) : (heap s)}
+  doLog ("* added " ++ (show (x,e)) ++ " to heap")
 
 deleteHeap :: Name -> State Context ()
 deleteHeap x = modify $ \s -> s{heap = filter ((/= x) . fst) (heap s)}
@@ -80,11 +84,19 @@ lookupHeap x = do
 type Label = String
 type Stack = [Label]
 
+stackIsNow = do
+  stk <- gets stack
+  doLog ("* Stack is now " ++ show stk)
+
 setStack :: Stack -> State Context ()
-setStack stk = modify $ \s -> s {stack = stk}
+setStack stk = do
+  modify $ \s -> s {stack = stk}
+  stackIsNow
 
 doPush :: Label -> State Context ()
-doPush l = modify $ \s -> s {stack = push l (stack s)}
+doPush l = do
+  modify $ \s -> s {stack = push l (stack s)}
+  stackIsNow
 
 push :: Label -> Stack -> Stack
 push l s
@@ -92,16 +104,13 @@ push l s
   | otherwise  = l : s
 
 doCall :: Stack -> State Context ()
-doCall sLam = modify $ \s -> s {stack = call (stack s) sLam}
+doCall sLam = do
+  modify $ \s -> s {stack = call (stack s) sLam}
+  stackIsNow
 
 call :: Stack -> Stack -> Stack
--- MF TODO: look into this, call sApp sLam = sApp ++ sLam'
-call sApp sLam =
-       sNew
-
--- call sApp sLam = sNew
+call sApp sLam = sLam' ++ sApp
   where (sPre,sApp',sLam') = commonPrefix sApp sLam
-        sNew = sLam' ++ sApp
 
 commonPrefix :: Stack -> Stack -> (Stack, Stack, Stack)
 commonPrefix sApp sLam
@@ -147,7 +156,8 @@ reduce (Var x) = do
     (_,Exception msg) -> do
       return (Exception msg)
     (stk,Const v) -> do
-      setStack stk
+      doCall stk
+      -- setStack stk      <== MF TODO: I think this (instead of 'call') is the ghc behaviour?
       return (Const v)
     (stk,Lambda y e) -> do
       doCall stk
@@ -229,7 +239,7 @@ getUniq = do
 
 doTrace :: Record -> State Context ()
 doTrace rec = do
-  doLog $ " * " ++ show rec
+  doLog $ "* " ++ show rec
   modify $ \cxt -> cxt{trace = rec : trace cxt}
 
 -- MF TODO: in some weird cases it seems to happen that there are multiple children.
@@ -315,7 +325,7 @@ disp expr = do
         shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
         showVertex = (foldl (++) "") . (map showRecord)
-        showRecord = recordRepr
+        showRecord rec = recordRepr rec ++ "\n" ++ show (recordStack rec)
         showArc _  = ""
 
 e1 = ACC "A" (Const 42)
@@ -375,3 +385,12 @@ e7 = Apply
           )
         )
       ) "z"  -- Try replacing "z" with "a" here
+
+e8 = ACC"root"
+--        (Apply 
+--          (Lambda "x" 
+            (Let ("y",ACC "CC1" (Const 42))
+                 (ACC "CC2" (Var "y"))
+            )
+--          ) "z"
+--        )

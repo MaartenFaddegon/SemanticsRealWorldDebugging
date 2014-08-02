@@ -120,13 +120,13 @@ propIsWrong e = case fst (evalWith reduce e) of
 
 propFaultyIfWrong e = propIsWrong e ==> propFoundFaulty e
 
-sound e = propValidExpr e' ==> propFaultyIfWrong e'
+sound e = propValidExpr e' ==> propSubset e' .&&. propFaultyIfWrong e'
   where e'   = ACCCorrect "root" (uniqueLabels e)
 
 main = quickCheckWith args sound
   where args = Args { replay          = Nothing
                     , maxSuccess      = 10000  -- number of tests
                     , maxDiscardRatio = 100
-                    , maxSize         = 1000    -- max subexpressions
+                    , maxSize         = 1000   -- max subexpressions
                     , chatty          = True
                     }
