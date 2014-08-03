@@ -4,6 +4,7 @@ License:        BSD3
 Author:         Maarten Faddegon
 Build-Type:     Simple
 Cabal-Version:  >= 1.10
+extra-source-files: README
 
 Executable Semantics-test
   Build-Depends:     base >= 4 && < 5, monads-tf, QuickCheck, libgraph
@@ -19,3 +20,4 @@ library
   hs-source-dirs:    src
   other-modules:     SimpleSemantics, StackSemantics
   default-language:  Haskell2010
+

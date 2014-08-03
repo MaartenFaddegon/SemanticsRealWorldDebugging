@@ -1,0 +1,18 @@
+This package contains four language definitions. Each next semantics builds
+upon the previous. In the src directory five sources are found: one for each
+definitions, and a file with QuickCheck properties. A source with a semantics
+can be interpreted with ghci and contains several examples at the bottom.  The
+four definitions are in order:
+
+SimpleSemantics
+  Launchbury's semantics: lamdbda calculus extended with constants,
+  variables, let definitions and exceptions.
+
+StackSemantics
+  The Cost Centre Stack extension of Jarvis and Marlow.
+
+TraceSemantics
+  Our contribution: observing values and their Cost Centre Stack.
+
+IntendedSemantics
+  With correctness encoded in enclosed expressions.
