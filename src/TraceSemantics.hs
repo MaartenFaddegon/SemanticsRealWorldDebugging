@@ -377,7 +377,7 @@ e6 =
 
 -- A demonstration of 'strange behaviour' because we don't properly
 -- freshen our varibles: scopes don't work as we would expect them to.
--- In this case it results in two records that claim to are the arg-value of
+-- In this case it results in two records that claim to be the arg-value of
 -- the same parent-record.
 e7 = Apply
       (Lambda "x"
@@ -393,23 +393,8 @@ e7 = Apply
         )
       ) "z"  -- Try replacing "z" with "a" here
 
-e8 = ACC"root"
---        (Apply 
---          (Lambda "x" 
-            (Let ("y",ACC "CC1" (Const 42))
-                 (ACC "CC2" (Var "y"))
-            )
---          ) "z"
---        )
-
-e10 = ACC "root" 
-      (Let ("z", Let ("b",Const 2) 
-                     (Lambda "x" (ACC "W" (Const 1)))
-           ) 
-           (Apply
-             (Apply
-               ( Lambda "y" (Apply (Lambda "a" (ACC "C" (Var "a"))) "z")
-               ) "x"
-             ) "y"
-           )
-      )
+-- An example of a tree with two branches that appear to be both faulty.
+-- We can only guarantee the 'oldest' branch to be actually faulty.
+e8 = ACC "root" (Let ("y",ACC "LET" (Const 42))
+                     (ACC "IN" (Var "y"))
+                )

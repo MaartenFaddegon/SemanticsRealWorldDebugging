@@ -275,12 +275,6 @@ successors trc merge rec = merge rec arg res
 --------------------------------------------------------------------------------
 -- Trace post processing
 
--- MF TODO: visualize merged ...?
--- mkEquations' :: (Trace, Expr) -> (Trace String, e)
--- mkEquations' (trc,reduct) = (map toString trc, reduct)
---   where toString rec = rec {recordRepr = (recordLabel rec) ++ " = " 
---                                        ++ (show $ recordRepr rec)}
-
 mkEquations :: (Expr,Trace) -> (Expr,Trace)
 mkEquations (reduct,trc) = (reduct,filter isRoot . map (successors trc merge) $ trc)
   where isRoot = (== Root) . recordParent
@@ -314,9 +308,17 @@ mkGraph' trace = Graph (head roots)
 arcsFrom :: Record -> Trace -> [Arc Record]
 arcsFrom src trc = (map (Arc src)) . (filter couldDependOn) $ trc
   where couldDependOns = pushDependency src 
-                         :  map (callDependency src) trc
-                         ++ map (flip callDependency src) trc
-                         -- : [] MF TODO: experiment with Olafs suggestion here
+
+                         -- function-as-parent
+                         : map (flip callDependency src) trc
+
+                         -- application-as-parent
+                         -- : map (callDependency src) trc
+                        
+                         -- neither
+                         -- : []
+
+
         couldDependOn  = yna couldDependOns
 
         -- The reverse of any
@@ -414,7 +416,7 @@ e6 =
 
 -- A demonstration of 'strange behaviour' because we don't properly
 -- freshen our varibles: scopes don't work as we would expect them to.
--- In this case it results in two records that claim to are the arg-value of
+-- In this case it results in two records that claim to be the arg-value of
 -- the same parent-record.
 e7 = Apply
       (Lambda "x"
@@ -430,23 +432,8 @@ e7 = Apply
         )
       ) "z"  -- Try replacing "z" with "a" here
 
-
-e8 = ACCCorrect "root"
-        (Apply (Lambda "x" 
-                (Let ("y",Apply (Lambda "y" (ACCFaulty "CC1" (Const Right))) "y") 
-                (Apply (Apply (Lambda "x" (Lambda "z" (Apply (Lambda "z" (ACCCorrect "CC2" (Var "y"))) "x"))) "z") "y"))
-                ) "x")
-
-e9 = ACCCorrect "root" (Let ("z",Lambda "y" (Apply (Var "y") "y")) (Apply (Let ("y",Lambda "z" (ACCCorrect "M" (Lambda "x" (ACCFaulty "A" (Var "z"))))) (Apply (Apply (Var "z") "y") "y")) "y"))
-
-e10 = ACCCorrect "root" 
-      (Let ("z", Let ("b",Const Right) 
-                     (Lambda "x" (ACCFaulty "W" (Const Right)))
-           ) 
-           (Apply
-             (Apply
-               ( Lambda "y" (Apply (Lambda "a" (ACCCorrect "C" (Var "a"))) "z")
-               ) "x"
-             ) "y"
-           )
-      )
+-- An example of a tree with two branches that appear to be both faulty.
+-- We can only guarantee the 'oldest' branch to be actually faulty.
+e8 = ACCCorrect "root" (Let ("y",ACCFaulty "LET" (Const Right))
+                            (ACCCorrect "IN" (Var "y"))
+                       )
