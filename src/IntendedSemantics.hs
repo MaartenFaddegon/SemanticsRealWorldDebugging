@@ -3,6 +3,8 @@ module IntendedSemantics where
 import Control.Monad.State
 import Prelude hiding (Right)
 import Data.Graph.Libgraph
+import Data.List (sort)
+import GHC.Exts (sortWith)
 
 --------------------------------------------------------------------------------
 -- Expressions
@@ -31,7 +33,11 @@ data Context = Context { trace          :: !Trace
                        }
 
 doLog :: String -> State Context ()
-doLog msg = modify $ \cxt -> cxt{reduceLog = (msg ++ "\n") : reduceLog cxt}
+doLog msg = do
+  d <- gets depth
+  modify $ \cxt -> cxt{reduceLog = (showd d ++ msg ++ "\n") : reduceLog cxt}
+  where showd 0 = " "
+        showd n = '|' : showd (n-1)
 
 evalWith' :: (Expr -> State Context Expr) -> Expr -> (Expr,Trace,String)
 evalWith' reduce redex = (reduct,trace cxt,foldl (++) "" . reverse . reduceLog $ cxt)
@@ -50,12 +56,10 @@ eval reduce expr = do
     else do
         d <- gets depth
         modify $ \cxt -> cxt{depth=d+1}
-        doLog (showd d ++ show n ++ ": " ++ show expr)
+        doLog (show n ++ ": " ++ show expr)
         reduct <- reduce expr
         modify $ \cxt -> cxt{depth=d}
         return reduct
-  where showd 0 = ""
-        showd n = '|' : showd (n-1)
 
 --------------------------------------------------------------------------------
 -- Manipulating the heap.
@@ -64,7 +68,9 @@ type Name = String
 type Heap = [(Name,(Stack,Expr))]
 
 insertHeap :: Name -> (Stack,Expr) -> State Context ()
-insertHeap x e = modify $ \s -> s{heap = (x,e) : (heap s)}
+insertHeap x e = do
+  modify $ \s -> s{heap = (x,e) : (heap s)}
+  doLog ("* added " ++ (show (x,e)) ++ " to heap")
 
 deleteHeap :: Name -> State Context ()
 deleteHeap x = modify $ \s -> s{heap = filter ((/= x) . fst) (heap s)}
@@ -82,11 +88,19 @@ lookupHeap x = do
 type Label = String
 type Stack = [Label]
 
+stackIsNow = do
+  stk <- gets stack
+  doLog ("* Stack is now " ++ show stk)
+
 setStack :: Stack -> State Context ()
-setStack stk = modify $ \s -> s {stack = stk}
+setStack stk = do
+  modify $ \s -> s {stack = stk}
+  stackIsNow
 
 doPush :: Label -> State Context ()
-doPush l = modify $ \s -> s {stack = push l (stack s)}
+doPush l = do
+  modify $ \s -> s {stack = push l (stack s)}
+  stackIsNow
 
 push :: Label -> Stack -> Stack
 push l s
@@ -94,7 +108,9 @@ push l s
   | otherwise  = l : s
 
 doCall :: Stack -> State Context ()
-doCall sLam = modify $ \s -> s {stack = call (stack s) sLam}
+doCall sLam = do
+  modify $ \s -> s {stack = call (stack s) sLam}
+  stackIsNow
 
 call :: Stack -> Stack -> Stack
 call sApp sLam = sLam' ++ sApp
@@ -239,7 +255,7 @@ getUniq = do
 
 doTrace :: Record -> State Context ()
 doTrace rec = do
-  doLog $ " * " ++ show rec
+  doLog $ "* " ++ show rec
   modify $ \cxt -> cxt{trace = rec : trace cxt}
 
 -- MF TODO: in some weird cases it seems to happen that there are multiple children.
@@ -270,11 +286,16 @@ mkEquations (reduct,trc) = (reduct,filter isRoot . map (successors trc merge) $ 
   where isRoot = (== Root) . recordParent
 
 merge :: Record -> Maybe Record -> Maybe Record -> Record
-merge rec arg res = rec{recordRepr=(recordRepr rec) `or` (jmt arg) `or` (jmt res)}
+merge rec arg res = rec{ recordRepr=(recordRepr rec) `or` (jmt arg) `or` (jmt res)
+                       , recordUID=newest [recordUID rec, getUID arg, getUID res]
+                       }
   where jmt mr = case mr of Just r -> recordRepr r; Nothing -> Right
         or Wrong _ = Wrong
         or _ Wrong = Wrong
         or _ _     = Right
+        newest = last . sort
+        getUID Nothing = 0
+        getUID (Just r) = recordUID r
 
 --------------------------------------------------------------------------------
 -- Debug
@@ -295,7 +316,7 @@ arcsFrom src trc = (map (Arc src)) . (filter couldDependOn) $ trc
   where couldDependOns = pushDependency src 
                          :  map (callDependency src) trc
                          ++ map (flip callDependency src) trc
-                         -- : []
+                         -- : [] MF TODO: experiment with Olafs suggestion here
         couldDependOn  = yna couldDependOns
 
         -- The reverse of any
@@ -323,18 +344,28 @@ findFaulty' = findFaulty wrongCC mergeCC
 debug :: Expr -> IO ()
 debug redex = do
   let (reduct,compgraph) = tracedEval redex
+  print (oldest $ findFaulty' compgraph)
+
+debug' :: Expr -> IO ()
+debug' redex = do
+  let (reduct,compgraph) = tracedEval redex
   print (findFaulty' compgraph)
+
+
+oldest :: [[Record]] -> [[Record]]
+oldest [] = []
+oldest rs = (:[]) . head . (sortWith getUID) $ rs
+  where getUID = head . sort . (map recordUID)
 
 tracedEval :: Expr -> (Expr,CompGraph)
 tracedEval = mkGraph . mkEquations . (evalWith reduce)
 
 disp :: Expr -> IO ()
-disp redex = do
-  let (reduct,compgraph) = tracedEval redex
-  print reduct
-  (display shw) compgraph
-
-  where shw :: CompGraph -> String
+disp expr = do 
+  putStr messages
+  (display shw) . snd . mkGraph . mkEquations $ (reduct,trc)
+  where (reduct,trc,messages) = evalWith' reduce expr
+        shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
         showVertex = (foldl (++) "") . (map showRecord)
         showRecord rec = recordLabel rec ++ " = " ++ show (recordRepr rec) 
@@ -405,3 +436,17 @@ e8 = ACCCorrect "root"
                 (Let ("y",Apply (Lambda "y" (ACCFaulty "CC1" (Const Right))) "y") 
                 (Apply (Apply (Lambda "x" (Lambda "z" (Apply (Lambda "z" (ACCCorrect "CC2" (Var "y"))) "x"))) "z") "y"))
                 ) "x")
+
+e9 = ACCCorrect "root" (Let ("z",Lambda "y" (Apply (Var "y") "y")) (Apply (Let ("y",Lambda "z" (ACCCorrect "M" (Lambda "x" (ACCFaulty "A" (Var "z"))))) (Apply (Apply (Var "z") "y") "y")) "y"))
+
+e10 = ACCCorrect "root" 
+      (Let ("z", Let ("b",Const Right) 
+                     (Lambda "x" (ACCFaulty "W" (Const Right)))
+           ) 
+           (Apply
+             (Apply
+               ( Lambda "y" (Apply (Lambda "a" (ACCCorrect "C" (Var "a"))) "z")
+               ) "x"
+             ) "y"
+           )
+      )

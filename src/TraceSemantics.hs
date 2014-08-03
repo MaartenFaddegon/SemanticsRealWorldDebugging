@@ -2,6 +2,7 @@ module TraceSemantics where
 
 import Control.Monad.State
 import Data.Graph.Libgraph
+import Data.List (sort)
 
 --------------------------------------------------------------------------------
 -- Expressions
@@ -156,8 +157,7 @@ reduce (Var x) = do
     (_,Exception msg) -> do
       return (Exception msg)
     (stk,Const v) -> do
-      doCall stk
-      -- setStack stk      <== MF TODO: I think this (instead of 'call') is the ghc behaviour?
+      setStack stk
       return (Const v)
     (stk,Lambda y e) -> do
       doCall stk
@@ -265,9 +265,13 @@ mkEquations (reduct,trc) = (reduct,filter isRoot . map (successors trc merge) $ 
 
 merge rec arg res =
   if lam && top
-    then rec {recordRepr = recordLabel rec ++ " " ++ val arg ++ " = " ++ val res }
+    then rec { recordRepr = recordLabel rec ++ " " ++ val arg ++ " = " ++ val res
+             , recordUID = newest [recordUID rec, getUID arg, getUID res]
+             }
   else if lam
-    then rec {recordRepr = "(\\" ++ val arg ++ " -> " ++ val res ++ ")"}
+    then rec { recordRepr = "(\\" ++ val arg ++ " -> " ++ val res ++ ")"
+             , recordUID = newest [recordUID rec, getUID arg, getUID res]
+             }
   else if top
     then rec {recordRepr = recordLabel rec ++ " = " ++ recordRepr rec}
     else rec
@@ -275,6 +279,9 @@ merge rec arg res =
         top = recordParent rec == Root
         val Nothing = "_"
         val (Just r) = recordRepr r
+        newest = last . sort
+        getUID Nothing = 0
+        getUID (Just r) = recordUID r
 
 --------------------------------------------------------------------------------
 -- Debug
@@ -309,7 +316,7 @@ pushDependency :: Record -> Record -> Bool
 pushDependency p c = nextStack p == recordStack c
 
 callDependency :: Record -> Record -> Record -> Bool
-callDependency p q c = call (nextStack p) (nextStack q) == recordStack c
+callDependency pApp pLam c = call (nextStack pApp) (nextStack pLam) == recordStack c
 
 --------------------------------------------------------------------------------
 -- Examples.
@@ -394,3 +401,15 @@ e8 = ACC"root"
             )
 --          ) "z"
 --        )
+
+e10 = ACC "root" 
+      (Let ("z", Let ("b",Const 2) 
+                     (Lambda "x" (ACC "W" (Const 1)))
+           ) 
+           (Apply
+             (Apply
+               ( Lambda "y" (Apply (Lambda "a" (ACC "C" (Var "a"))) "z")
+               ) "x"
+             ) "y"
+           )
+      )

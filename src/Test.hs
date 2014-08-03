@@ -7,13 +7,11 @@ import Data.Graph.Libgraph
 --------------------------------------------------------------------------------
 -- Algorithmic debugging from a trace
 
-faultyNodes :: Expr -> [Label]
-faultyNodes = getLabels . findFaulty' . snd . mkGraph . mkEquations . (evalWith reduce)
+faultyNodes :: Expr -> [[Label]]
+faultyNodes = getLabels . oldest . findFaulty' . snd . mkGraph . mkEquations . (evalWith reduce)
 
-getLabels :: [[Record]] -> [Label]
-getLabels = foldl accLabels []
-  where accLabels acc v = acc ++ getLabels' v
-        getLabels' = map recordLabel
+getLabels :: [[Record]] -> [[Label]]
+getLabels = map (map recordLabel)
 
 
 --------------------------------------------------------------------------------
@@ -101,11 +99,14 @@ instance Arbitrary Expr where
 propValidExpr :: Expr -> Bool
 propValidExpr e = case fst (evalWith reduce e) of (Exception _) -> False; _ -> True
 
-propExact :: Expr -> Bool
-propExact e = faultyNodes e == faultyExprs e
+-- propExact :: Expr -> Bool
+-- propExact e = faultyNodes e == faultyExprs e
 
 propSubset :: Expr -> Bool
-propSubset e = (faultyNodes e) `subset` (faultyExprs e)
+propSubset e = (faultyNodes e) `anySubset` (faultyExprs e)
+
+anySubset :: Eq a => [[a]] -> [a] -> Bool
+anySubset xss ys = foldr ((&&) . any (`elem` ys)) True xss
 
 subset :: Eq a => [a] -> [a] -> Bool
 subset xs ys = foldr ((&&) . (`elem` ys)) True xs
