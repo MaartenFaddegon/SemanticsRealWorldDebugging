@@ -30,11 +30,7 @@ data Context = Context { trace          :: !Trace
                        }
 
 doLog :: String -> State Context ()
-doLog msg = do
-  d <- gets depth
-  modify $ \cxt -> cxt{reduceLog = (showd d ++ msg ++ "\n") : reduceLog cxt}
-  where showd 0 = " "
-        showd n = '|' : showd (n-1)
+doLog msg = modify $ \cxt -> cxt{reduceLog = (msg ++ "\n") : reduceLog cxt}
 
 evalWith' :: (Expr -> State Context Expr) -> Expr -> (Expr,Trace,String)
 evalWith' reduce redex = (reduct,trace cxt,foldl (++) "" . reverse . reduceLog $ cxt)
@@ -57,6 +53,8 @@ eval reduce expr = do
         reduct <- reduce expr
         modify $ \cxt -> cxt{depth=d}
         return reduct
+  where showd 0 = ""
+        showd n = '|' : showd (n-1)
 
 --------------------------------------------------------------------------------
 -- Manipulating the heap.

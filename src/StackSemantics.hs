@@ -44,7 +44,7 @@ eval reduce expr = do
     else do
         d <- gets depth
         modify $ \cxt -> cxt{depth=d+1}
-        doLog (showd d ++ show n ++ ": " ++ show expr)
+        doLog (show n ++ ": " ++ show expr)
         reduct <- reduce expr
         modify $ \cxt -> cxt{depth=d}
         return reduct
@@ -58,7 +58,9 @@ type Name = String
 type Heap = [(Name,(Stack,Expr))]
 
 insertHeap :: Name -> (Stack,Expr) -> State Context ()
-insertHeap x e = modify $ \s -> s{heap = (x,e) : (heap s)}
+insertHeap x e = do
+  modify $ \s -> s{heap = (x,e) : (heap s)}
+  doLog ("* added " ++ (show (x,e)) ++ " to heap")
 
 deleteHeap :: Name -> State Context ()
 deleteHeap x = modify $ \s -> s{heap = filter ((/= x) . fst) (heap s)}
@@ -76,28 +78,33 @@ lookupHeap x = do
 type Label = String
 type Stack = [Label]
 
+stackIsNow = do
+  stk <- gets stack
+  doLog ("* Stack is now " ++ show stk)
+
 setStack :: Stack -> State Context ()
-setStack stk = modify $ \s -> s {stack = stk}
+setStack stk = do
+  modify $ \s -> s {stack = stk}
+  stackIsNow
 
 doPush :: Label -> State Context ()
-doPush l = modify $ \s -> s {stack = push l (stack s)}
+doPush lbl = do
+  modify $ \cxt -> cxt {stack = push lbl (stack cxt)}
+  stackIsNow
 
 push :: Label -> Stack -> Stack
-push l s
-  | l `elem` s = dropWhile (/= l) s
-  | otherwise  = l : s
+push lbl stk
+  | lbl `elem` stk = dropWhile (/= lbl) stk
+  | otherwise  = lbl : stk
 
 doCall :: Stack -> State Context ()
-doCall sLam = modify $ \s -> s {stack = call (stack s) sLam}
+doCall sLam = do
+  modify $ \s -> s {stack = call (stack s) sLam}
+  stackIsNow
 
 call :: Stack -> Stack -> Stack
--- MF TODO: look into this, call sApp sLam = sApp ++ sLam'
-call sApp sLam =
-       sNew
-
--- call sApp sLam = sNew
+call sApp sLam = sLam' ++ sApp
   where (sPre,sApp',sLam') = commonPrefix sApp sLam
-        sNew = sLam' ++ sApp
 
 commonPrefix :: Stack -> Stack -> (Stack, Stack, Stack)
 commonPrefix sApp sLam
@@ -161,7 +168,6 @@ reduce (Var x) = do
           eval reduce (Var x)
 
 reduce (CC l e) = do
-  stk <- gets stack
   doPush l
   eval reduce e
 
