@@ -86,7 +86,10 @@ instance Arbitrary Expr where
   shrink (ACCFaulty l e)  = e : (map (ACCFaulty l) (shrink e))
   shrink (ACCCorrect l e) = e : (map (ACCCorrect l) (shrink e))
   shrink (Lambda n e)     = e : (map (Lambda n) (shrink e))
-  shrink (Apply e n)      = e : (map (flip Apply n) (shrink e))
+  shrink (Apply e n)      = let alts = e : (map (flip Apply n) (shrink e))
+                            in case e of
+                              (Lambda _ e') -> e' : alts
+                              _             -> alts
   shrink (Let (n,e1) e2)  = e2 : e1 
                             :    (map (Let (n,e1)) (shrink e2))
                             ++   (map (\e-> Let (n,e) e2) (shrink e1))

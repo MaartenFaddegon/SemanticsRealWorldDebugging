@@ -30,6 +30,7 @@ data Context = Context { trace          :: !Trace
                        , depth          :: !Int
                        , reductionCount :: !Int
                        , reduceLog      :: ![String]
+                       , freshVarNames  :: ![Name]
                        }
 
 doLog :: String -> State Context ()
@@ -41,11 +42,13 @@ doLog msg = do
 
 evalWith' :: (Expr -> State Context Expr) -> Expr -> (Expr,Trace,String)
 evalWith' reduce redex = (reduct,trace cxt,foldl (++) "" . reverse . reduceLog $ cxt)
-  where (reduct,cxt) = runState (eval reduce redex) (Context [] 0 [] [] 0 1 [])
+  where (reduct,cxt) = runState (eval reduce redex) state0
 
 evalWith :: (Expr -> State Context Expr) -> Expr -> (Expr,Trace)
 evalWith reduce redex = (reduct, trace cxt)
-  where (reduct,cxt) = runState (eval reduce redex) (Context [] 0 [] [] 0 1 [])
+  where (reduct,cxt) = runState (eval reduce redex) state0
+
+state0 = Context [] 0 [] [] 0 1 [] (map (("x"++) . show) [1..])
 
 eval :: (Expr -> State Context Expr) -> (Expr -> State Context Expr)
 eval reduce expr = do 
@@ -109,11 +112,14 @@ push l s
 
 doCall :: Stack -> State Context ()
 doCall sLam = do
+  stk <- gets stack
+  doLog ("* call " ++ show stk ++ " " ++ show sLam)
   modify $ \s -> s {stack = call (stack s) sLam}
   stackIsNow
 
 call :: Stack -> Stack -> Stack
 call sApp sLam = sLam' ++ sApp
+-- call sApp sLam = foldl (flip push) sPre sLam'
   where (sPre,sApp',sLam') = commonPrefix sApp sLam
 
 commonPrefix :: Stack -> Stack -> (Stack, Stack, Stack)
@@ -143,9 +149,9 @@ reduce (Lambda x e) =
 reduce (Let (x,e1) e2) = do
   stk <- gets stack
   insertHeap x (stk,e1)
-  result <- reduce e2
+  reduct <- reduce e2
   deleteHeap x
-  return result
+  return reduct
 
 reduce (Apply f x) = do
   e <- eval reduce f
@@ -164,7 +170,7 @@ reduce (Var x) = do
       return (Const v)
     (stk,Lambda y e) -> do
       doCall stk
-      return (Lambda y e)
+      fresh (Lambda y e)
     (stk,e) -> do
       deleteHeap x
       setStack stk
@@ -229,6 +235,54 @@ sub :: Name -> Name -> Name -> Name
 sub n m n' = if n == n' then m else n'
 
 --------------------------------------------------------------------------------
+-- Fresh variable names
+
+fresh :: Expr -> State Context Expr
+
+fresh (Const v) = do
+  return (Const v)
+
+fresh (Lambda x e) = do 
+  y <- getFreshVar
+  e' <- (fresh . subst x y) e
+  return (Lambda y e')
+
+fresh (Let (x,e1) e2) = do 
+  y <- getFreshVar
+  e1' <- (fresh . subst x y) e1
+  e2' <- (fresh . subst x y) e2
+  return $ Let (y,e1') e2'
+
+fresh (Apply f x) = do 
+  f' <- fresh f
+  return $ Apply f' x
+
+fresh (Var x) =
+  return (Var x)
+
+fresh (ACCCorrect l e) = do
+  e' <- fresh e
+  return (ACCCorrect l e')
+
+fresh (ACCFaulty l e) = do
+  e' <- fresh e
+  return (ACCFaulty l e')
+
+-- Does it make any sense to get a fresh Observation?
+fresh (Observed l s p e) = do
+  e' <- fresh e
+  return (Observed l s p e')
+
+
+fresh e = error ("How to fresh this? " ++ show e)
+
+getFreshVar :: State Context Name
+getFreshVar = do
+  (x:xs) <- gets freshVarNames
+  modify $ \cxt -> cxt {freshVarNames=xs}
+  return x
+
+--------------------------------------------------------------------------------
 -- Tracing
 
 data Judgement  = Right | Wrong deriving (Show,Eq,Ord)
@@ -280,13 +334,18 @@ mkEquations (reduct,trc) = (reduct,filter isRoot . map (successors trc merge) $ 
   where isRoot = (== Root) . recordParent
 
 merge :: Record -> Maybe Record -> Maybe Record -> Record
-merge rec arg res = rec{ recordRepr=(recordRepr rec) `or` (jmt arg) `or` (jmt res)
+merge rec arg res = rec{ recordRepr=(recordRepr rec) `or` (jmt res) `argOr` (jmt arg)
                        , recordUID=newest [recordUID rec, getUID arg, getUID res]
                        }
   where jmt mr = case mr of Just r -> recordRepr r; Nothing -> Right
         or Wrong _ = Wrong
         or _ Wrong = Wrong
         or _ _     = Right
+
+        argOr _ Wrong = Right
+        argOr Wrong _ = Wrong
+        argOr _ _     = Right
+
         newest = last . sort
         getUID Nothing = 0
         getUID (Just r) = recordUID r
@@ -300,7 +359,10 @@ mkGraph :: (Expr,Trace) -> (Expr,CompGraph)
 mkGraph (reduct,trc) = (reduct,mapGraph (\r->[r]) (mkGraph' trc))
 
 mkGraph' :: Trace -> Graph (Record)
-mkGraph' trace = Graph (head roots)
+mkGraph' trace
+  | length trace < 1 = error "mkGraph: empty trace"
+  | length roots < 1 = error "mkGraph: no root"
+  | otherwise = Graph (head roots)
                        trace
                        (foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
   where roots = filter (\rec -> recordStack rec == []) trace
@@ -311,6 +373,9 @@ arcsFrom src trc = (map (Arc src)) . (filter couldDependOn) $ trc
 
                          -- function-as-parent
                          : map (flip callDependency src) trc
+
+                         -- 2nd level application in function-as-parent
+                         -- ++ apmap (map (flip callDependency2 src) trc) trc
 
                          -- application-as-parent
                          -- : map (callDependency src) trc
@@ -325,6 +390,9 @@ arcsFrom src trc = (map (Arc src)) . (filter couldDependOn) $ trc
         yna :: [a->Bool] -> a -> Bool
         yna ps x = or (map (\p -> p x) ps)
 
+        apmap :: [a->b] -> [a] -> [b]
+        apmap fs xs = foldl (\acc f -> acc ++ (map f xs)) [] fs
+
 
 nextStack :: Record -> Stack
 nextStack rec = push (recordLabel rec) (recordStack rec)
@@ -334,6 +402,10 @@ pushDependency p c = nextStack p == recordStack c
 
 callDependency :: Record -> Record -> Record -> Bool
 callDependency pApp pLam c = call (nextStack pApp) (nextStack pLam) == recordStack c
+
+callDependency2 pApp pApp' pLam' c = call (nextStack pApp) pLam == recordStack c
+  where pLam = call (nextStack pApp') (nextStack pLam')
+
 
 --------------------------------------------------------------------------------
 -- Examples.
@@ -437,3 +509,27 @@ e7 = Apply
 e8 = ACCCorrect "root" (Let ("y",ACCFaulty "LET" (Const Right))
                             (ACCCorrect "IN" (Var "y"))
                        )
+
+
+e9 = ACCCorrect "root" (Apply (Apply (Let ("x",Let ("y",Apply (Lambda "z" (ACCCorrect "CC1" (Lambda "y" (Var "z")))) "y") (Lambda "x" (ACCCorrect "CC2" (Var "x")))) (Apply (Let ("z",Apply (Lambda "z" (Var "y")) "z") (Apply (Apply (Var "x") "x") "z")) "y")) "x") "y")
+
+e10 = ACCCorrect "root" (Apply (Apply (Let ("x",Lambda "y" (ACCFaulty "CC1" (Apply (Lambda "z" (ACCCorrect "CC2" (Var "z"))) "y"))) (Let ("y",Const Right) (Var "x"))) "x") "y")
+
+
+-- Demonstrating the need for two levels of calls. Could this be necessary for n-levels? :(
+-- See callDependency2.
+-- But this only "works" because the let lives behind its scope...
+--
+-- e11 = ACCCorrect "root" 
+--       (Apply 
+--         (Let ("y",ACCCorrect "CC1" (Var "f")) 
+--         (Let ("f",ACCFaulty "CC2" 
+--                 (Lambda "k" (ACCCorrect "CC3" (Lambda "x" (ACCFaulty "CC4" (Apply (Var "x") "y")))))
+--              ) (Apply (Var "f") "f")
+--         )) "y"
+--       )
+
+
+-- let a="a"; b="b";c="c";d="d";e="e"
+
+-- main = disp e11

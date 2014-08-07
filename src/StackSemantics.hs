@@ -133,9 +133,7 @@ reduce (Lambda x e) =
 reduce (Let (x,e1) e2) = do
   stk <- gets stack
   insertHeap x (stk,e1)
-  result <- reduce e2
-  deleteHeap x
-  return result
+  eval reduce e2
 
 reduce (Apply f x) = do
   e <- eval reduce f

@@ -30,7 +30,11 @@ data Context = Context { trace          :: !Trace
                        }
 
 doLog :: String -> State Context ()
-doLog msg = modify $ \cxt -> cxt{reduceLog = (msg ++ "\n") : reduceLog cxt}
+doLog msg = do
+  d <- gets depth
+  modify $ \cxt -> cxt{reduceLog = (showd d ++ msg ++ "\n") : reduceLog cxt}
+  where showd 0 = " "
+        showd n = '|' : showd (n-1)
 
 evalWith' :: (Expr -> State Context Expr) -> Expr -> (Expr,Trace,String)
 evalWith' reduce redex = (reduct,trace cxt,foldl (++) "" . reverse . reduceLog $ cxt)
@@ -53,8 +57,6 @@ eval reduce expr = do
         reduct <- reduce expr
         modify $ \cxt -> cxt{depth=d}
         return reduct
-  where showd 0 = ""
-        showd n = '|' : showd (n-1)
 
 --------------------------------------------------------------------------------
 -- Manipulating the heap.
@@ -138,9 +140,7 @@ reduce (Lambda x e) =
 reduce (Let (x,e1) e2) = do
   stk <- gets stack
   insertHeap x (stk,e1)
-  result <- reduce e2
-  deleteHeap x
-  return result
+  eval reduce e2
 
 reduce (Apply f x) = do
   e <- eval reduce f
@@ -298,8 +298,17 @@ mkGraph' trace = Graph (head roots)
 arcsFrom :: Record -> Trace -> [Arc Record]
 arcsFrom src trc = (map (Arc src)) . (filter couldDependOn) $ trc
   where couldDependOns = pushDependency src 
-                         :  map (callDependency src) trc
-                         ++ map (flip callDependency src) trc
+
+                         -- function-as-parent
+                         : map (flip callDependency src) trc
+
+                         -- application-as-parent
+                         -- : map (callDependency src) trc
+                        
+                         -- neither
+                         -- : []
+
+
         couldDependOn  = yna couldDependOns
 
         -- The reverse of any
@@ -396,3 +405,6 @@ e7 = Apply
 e8 = ACC "root" (Let ("y",ACC "LET" (Const 42))
                      (ACC "IN" (Var "y"))
                 )
+
+
+e9 = ACC "root" (Apply (Apply (Let ("x",Let ("y",Apply (Lambda "z" (ACC "CC1" (Lambda "y" (Var "z")))) "y") (Lambda "x" (ACC "CC2" (Var "x")))) (Apply (Let ("z",Apply (Lambda "z" (Var "y")) "z") (Apply (Apply (Var "x") "x") "z")) "y")) "x") "y")
