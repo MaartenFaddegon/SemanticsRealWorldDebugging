@@ -27,6 +27,7 @@ data Context = Context { trace          :: !Trace
                        , depth          :: !Int
                        , reductionCount :: !Int
                        , reduceLog      :: ![String]
+                       , freshVarNames  :: ![Name]
                        }
 
 doLog :: String -> State Context ()
@@ -36,16 +37,18 @@ doLog msg = do
   where showd 0 = " "
         showd n = '|' : showd (n-1)
 
-evalWith' :: (Expr -> State Context Expr) -> Expr -> (Expr,Trace,String)
-evalWith' reduce redex = (reduct,trace cxt,foldl (++) "" . reverse . reduceLog $ cxt)
-  where (reduct,cxt) = runState (eval reduce redex) (Context [] 0 [] [] 0 1 [])
+evalWith' :: Expr -> (Expr,Trace,String)
+evalWith' redex = (reduct,trace cxt,foldl (++) "" . reverse . reduceLog $ cxt)
+  where (reduct,cxt) = runState (eval redex) state0
 
-evalWith :: (Expr -> State Context Expr) -> Expr -> (Expr,Trace)
-evalWith reduce redex = (reduct, trace cxt)
-  where (reduct,cxt) = runState (eval reduce redex) (Context [] 0 [] [] 0 1 [])
+evalWith :: Expr -> (Expr,Trace)
+evalWith redex = (reduct, trace cxt)
+  where (reduct,cxt) = runState (eval redex) state0
 
-eval :: (Expr -> State Context Expr) -> (Expr -> State Context Expr)
-eval reduce expr = do 
+state0 = Context [] 0 [] [] 0 1 [] (map (("x"++) . show) [1..])
+
+eval :: (Expr -> State Context Expr)
+eval expr = do 
   n <- gets reductionCount
   modify $ \s -> s {reductionCount = n+1}
   if n > 500
@@ -106,6 +109,8 @@ push l s
 
 doCall :: Stack -> State Context ()
 doCall sLam = do
+  stk <- gets stack
+  doLog ("* call " ++ show stk ++ " " ++ show sLam)
   modify $ \s -> s {stack = call (stack s) sLam}
   stackIsNow
 
@@ -140,12 +145,14 @@ reduce (Lambda x e) =
 reduce (Let (x,e1) e2) = do
   stk <- gets stack
   insertHeap x (stk,e1)
-  eval reduce e2
+  reduct <- eval e2
+  deleteHeap x
+  return reduct
 
 reduce (Apply f x) = do
-  e <- eval reduce f
+  e <- eval f
   case e of 
-    (Lambda y e)  -> eval reduce (subst y x e)
+    (Lambda y e)  -> eval (subst y x e)
     Exception msg -> return (Exception msg)
     _             -> return (Exception "Apply non-Lambda?")
 
@@ -159,27 +166,27 @@ reduce (Var x) = do
       return (Const v)
     (stk,Lambda y e) -> do
       doCall stk
-      return (Lambda y e)
+      fresh (Lambda y e)
     (stk,e) -> do
       deleteHeap x
       setStack stk
-      v' <- eval reduce e
+      v' <- eval e
       case v' of
         Exception msg -> return (Exception msg)
         v -> do
           stkv <- gets stack
           insertHeap x (stkv,v)
           setStack stk
-          eval reduce (Var x)
+          eval (Var x)
 
 reduce (ACC l e) = do
   stk <- gets stack
   doPush l
-  eval reduce (Observed l stk Root e)
+  eval (Observed l stk Root e)
 
 reduce (Observed l s p e) = do
   stk <- gets stack
-  e' <- eval reduce e
+  e' <- eval e
   case e' of
     Exception msg ->
       return (Exception msg)
@@ -211,6 +218,48 @@ subst n m (Observed l s p e) = Observed l s p (subst n m e)
 
 sub :: Name -> Name -> Name -> Name
 sub n m n' = if n == n' then m else n'
+
+--------------------------------------------------------------------------------
+-- Fresh variable names
+
+fresh :: Expr -> State Context Expr
+
+fresh (Const v) = do
+  return (Const v)
+
+fresh (Lambda x e) = do 
+  y <- getFreshVar
+  e' <- (fresh . subst x y) e
+  return (Lambda y e')
+
+fresh (Let (x,e1) e2) = do 
+  y <- getFreshVar
+  e1' <- (fresh . subst x y) e1
+  e2' <- (fresh . subst x y) e2
+  return $ Let (y,e1') e2'
+
+fresh (Apply f x) = do 
+  f' <- fresh f
+  return $ Apply f' x
+
+fresh (Var x) =
+  return (Var x)
+
+fresh (ACC l e) = do
+  e' <- fresh e
+  return (ACC l e')
+
+fresh (Observed l s p e) = do
+  e' <- fresh e
+  return (Observed l s p e')
+
+fresh e = error ("How to fresh this? " ++ show e)
+
+getFreshVar :: State Context Name
+getFreshVar = do
+  (x:xs) <- gets freshVarNames
+  modify $ \cxt -> cxt {freshVarNames=xs}
+  return x
 
 --------------------------------------------------------------------------------
 -- Tracing
@@ -329,13 +378,13 @@ callDependency pApp pLam c = call (nextStack pApp) (nextStack pLam) == recordSta
 -- Examples.
 
 tracedEval :: Expr -> (Expr,CompGraph)
-tracedEval = mkGraph . mkEquations . (evalWith reduce)
+tracedEval = mkGraph . mkEquations . evalWith
 
 disp :: Expr -> IO ()
 disp expr = do 
   putStr messages
   (display shw) . snd . mkGraph . mkEquations $ (reduct,trc)
-  where (reduct,trc,messages) = evalWith' reduce expr
+  where (reduct,trc,messages) = evalWith' expr
         shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
         showVertex = (foldl (++) "") . (map showRecord)

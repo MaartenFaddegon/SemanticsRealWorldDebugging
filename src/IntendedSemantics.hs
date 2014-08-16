@@ -40,18 +40,18 @@ doLog msg = do
   where showd 0 = " "
         showd n = '|' : showd (n-1)
 
-evalWith' :: (Expr -> State Context Expr) -> Expr -> (Expr,Trace,String)
-evalWith' reduce redex = (reduct,trace cxt,foldl (++) "" . reverse . reduceLog $ cxt)
-  where (reduct,cxt) = runState (eval reduce redex) state0
+evalWith' :: Expr -> (Expr,Trace,String)
+evalWith' redex = (reduct,trace cxt,foldl (++) "" . reverse . reduceLog $ cxt)
+  where (reduct,cxt) = runState (eval redex) state0
 
-evalWith :: (Expr -> State Context Expr) -> Expr -> (Expr,Trace)
-evalWith reduce redex = (reduct, trace cxt)
-  where (reduct,cxt) = runState (eval reduce redex) state0
+evalWith :: Expr -> (Expr,Trace)
+evalWith redex = (reduct, trace cxt)
+  where (reduct,cxt) = runState (eval redex) state0
 
 state0 = Context [] 0 [] [] 0 1 [] (map (("x"++) . show) [1..])
 
-eval :: (Expr -> State Context Expr) -> (Expr -> State Context Expr)
-eval reduce expr = do 
+eval :: (Expr -> State Context Expr)
+eval expr = do 
   n <- gets reductionCount
   modify $ \s -> s {reductionCount = n+1}
   if n > 500
@@ -119,7 +119,6 @@ doCall sLam = do
 
 call :: Stack -> Stack -> Stack
 call sApp sLam = sLam' ++ sApp
--- call sApp sLam = foldl (flip push) sPre sLam'
   where (sPre,sApp',sLam') = commonPrefix sApp sLam
 
 commonPrefix :: Stack -> Stack -> (Stack, Stack, Stack)
@@ -149,14 +148,14 @@ reduce (Lambda x e) =
 reduce (Let (x,e1) e2) = do
   stk <- gets stack
   insertHeap x (stk,e1)
-  reduct <- reduce e2
+  reduct <- eval e2
   deleteHeap x
   return reduct
 
 reduce (Apply f x) = do
-  e <- eval reduce f
+  e <- eval f
   case e of 
-    (Lambda y e)  -> eval reduce (subst y x e)
+    (Lambda y e)  -> eval (subst y x e)
     Exception msg -> return (Exception msg)
     _             -> return (Exception "Apply non-Lambda?")
 
@@ -174,33 +173,33 @@ reduce (Var x) = do
     (stk,e) -> do
       deleteHeap x
       setStack stk
-      v' <- eval reduce e
+      v' <- eval e
       case v' of
         Exception msg -> return (Exception msg)
         v -> do
           stkv <- gets stack
           insertHeap x (stkv,v)
           setStack stk
-          eval reduce (Var x)
+          eval (Var x)
 
 reduce (ACCCorrect l e) = do
   stk <- gets stack
   doPush l
-  eval reduce (Observed l stk Root e)
+  eval (Observed l stk Root e)
 
 reduce (ACCFaulty l e) = do
   stk <- gets stack
   doPush l
   uid <- getUniq
   doTrace (Record l stk uid Root Wrong)
-  r <- eval reduce e
+  r <- eval e
   case r of
     (Const jmt) -> return (Const Wrong)
     _           -> return r
 
 reduce (Observed l s p e) = do
   stk <- gets stack
-  e' <- eval reduce e
+  e' <- eval e
   case e' of
     Exception msg ->
       return (Exception msg)
@@ -268,11 +267,9 @@ fresh (ACCFaulty l e) = do
   e' <- fresh e
   return (ACCFaulty l e')
 
--- Does it make any sense to get a fresh Observation?
 fresh (Observed l s p e) = do
   e' <- fresh e
   return (Observed l s p e')
-
 
 fresh e = error ("How to fresh this? " ++ show e)
 
@@ -390,8 +387,8 @@ arcsFrom src trc = (map (Arc src)) . (filter couldDependOn) $ trc
         yna :: [a->Bool] -> a -> Bool
         yna ps x = or (map (\p -> p x) ps)
 
-        apmap :: [a->b] -> [a] -> [b]
-        apmap fs xs = foldl (\acc f -> acc ++ (map f xs)) [] fs
+        -- apmap :: [a->b] -> [a] -> [b]
+        -- apmap fs xs = foldl (\acc f -> acc ++ (map f xs)) [] fs
 
 
 nextStack :: Record -> Stack
@@ -403,8 +400,8 @@ pushDependency p c = nextStack p == recordStack c
 callDependency :: Record -> Record -> Record -> Bool
 callDependency pApp pLam c = call (nextStack pApp) (nextStack pLam) == recordStack c
 
-callDependency2 pApp pApp' pLam' c = call (nextStack pApp) pLam == recordStack c
-  where pLam = call (nextStack pApp') (nextStack pLam')
+-- callDependency2 pApp pApp' pLam' c = call (nextStack pApp) pLam == recordStack c
+--   where pLam = call (nextStack pApp') (nextStack pLam')
 
 
 --------------------------------------------------------------------------------
@@ -432,13 +429,13 @@ oldest rs = (:[]) . head . (sortWith getUID) $ rs
   where getUID = head . sort . (map recordUID)
 
 tracedEval :: Expr -> (Expr,CompGraph)
-tracedEval = mkGraph . mkEquations . (evalWith reduce)
+tracedEval = mkGraph . mkEquations . evalWith
 
 disp :: Expr -> IO ()
 disp expr = do 
   putStr messages
   (display shw) . snd . mkGraph . mkEquations $ (reduct,trc)
-  where (reduct,trc,messages) = evalWith' reduce expr
+  where (reduct,trc,messages) = evalWith' expr
         shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
         showVertex = (foldl (++) "") . (map showRecord)

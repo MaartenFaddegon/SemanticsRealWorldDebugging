@@ -8,7 +8,7 @@ import Data.Graph.Libgraph
 -- Algorithmic debugging from a trace
 
 faultyNodes :: Expr -> [[Label]]
-faultyNodes = getLabels . oldest . findFaulty' . snd . mkGraph . mkEquations . (evalWith reduce)
+faultyNodes = getLabels . oldest . findFaulty' . snd . mkGraph . mkEquations . evalWith
 
 getLabels :: [[Record]] -> [[Label]]
 getLabels = map (map recordLabel)
@@ -100,7 +100,7 @@ instance Arbitrary Expr where
 
 -- MF TODO: should we really allow any redex that doesn't throw an expression?
 propValidExpr :: Expr -> Bool
-propValidExpr e = case fst (evalWith reduce e) of (Exception _) -> False; _ -> True
+propValidExpr e = case fst (evalWith e) of (Exception _) -> False; _ -> True
 
 -- propExact :: Expr -> Bool
 -- propExact e = faultyNodes e == faultyExprs e
@@ -118,7 +118,7 @@ propFoundFaulty :: Expr -> Bool
 propFoundFaulty e = faultyNodes e /= []
 
 propIsWrong :: Expr -> Bool
-propIsWrong e = case fst (evalWith reduce e) of
+propIsWrong e = case fst (evalWith e) of
   (Const Wrong) -> True
   _             -> False
 

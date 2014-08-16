@@ -22,21 +22,28 @@ data Context = Context { stack          :: !Stack
                        , depth          :: !Int
                        , reductionCount :: !Int
                        , reduceLog      :: ![String]
+                       , freshVarNames  :: ![Name]
                        }
 
 doLog :: String -> State Context ()
-doLog msg = modify $ \cxt -> cxt{reduceLog = (msg ++ "\n") : reduceLog cxt}
+doLog msg = do
+  d <- gets depth
+  modify $ \cxt -> cxt{reduceLog = (showd d ++ msg ++ "\n") : reduceLog cxt}
+  where showd 0 = " "
+        showd n = '|' : showd (n-1)
 
-evalWith' :: (Expr -> State Context Expr) -> Expr -> (Expr,String)
-evalWith' reduce redex =
-  let (res,cxt) = runState (eval reduce redex) (Context [] [] 0 1 [])
-  in  (res, foldl (++) "" . reverse . reduceLog $ cxt)
+evalWith' :: Expr -> (Expr,String)
+evalWith' redex = (reduct,foldl (++) "" . reverse . reduceLog $ cxt)
+  where (reduct,cxt) = runState (eval redex) state0
 
-evalWith :: (Expr -> State Context Expr) -> Expr -> Expr
-evalWith reduce redex = evalState (eval reduce redex) (Context [] [] 0 1 [])
+evalWith :: Expr -> Expr
+evalWith redex = reduct
+  where (reduct,cxt) = runState (eval redex) state0
 
-eval :: (Expr -> State Context Expr) -> (Expr -> State Context Expr)
-eval reduce expr = do 
+state0 = Context [] [] 0 1 [] (map (("x"++) . show) [1..])
+
+eval :: (Expr -> State Context Expr)
+eval expr = do 
   n <- gets reductionCount
   modify $ \s -> s {reductionCount = n+1}
   if n > 500
@@ -48,8 +55,6 @@ eval reduce expr = do
         reduct <- reduce expr
         modify $ \cxt -> cxt{depth=d}
         return reduct
-  where showd 0 = ""
-        showd n = '|' : showd (n-1)
 
 --------------------------------------------------------------------------------
 -- Manipulating the heap.
@@ -88,17 +93,19 @@ setStack stk = do
   stackIsNow
 
 doPush :: Label -> State Context ()
-doPush lbl = do
-  modify $ \cxt -> cxt {stack = push lbl (stack cxt)}
+doPush l = do
+  modify $ \s -> s {stack = push l (stack s)}
   stackIsNow
 
 push :: Label -> Stack -> Stack
-push lbl stk
-  | lbl `elem` stk = dropWhile (/= lbl) stk
-  | otherwise  = lbl : stk
+push l s
+  | l `elem` s = dropWhile (/= l) s
+  | otherwise  = l : s
 
 doCall :: Stack -> State Context ()
 doCall sLam = do
+  stk <- gets stack
+  doLog ("* call " ++ show stk ++ " " ++ show sLam)
   modify $ \s -> s {stack = call (stack s) sLam}
   stackIsNow
 
@@ -133,12 +140,14 @@ reduce (Lambda x e) =
 reduce (Let (x,e1) e2) = do
   stk <- gets stack
   insertHeap x (stk,e1)
-  eval reduce e2
+  reduct <- eval e2
+  deleteHeap x
+  return reduct
 
 reduce (Apply f x) = do
-  e <- eval reduce f
+  e <- eval f
   case e of 
-    (Lambda y e)  -> eval reduce (subst y x e)
+    (Lambda y e)  -> eval (subst y x e)
     Exception msg -> return (Exception msg)
     _             -> return (Exception "Apply non-Lambda?")
 
@@ -152,22 +161,22 @@ reduce (Var x) = do
       return (Const v)
     (stk,Lambda y e) -> do
       doCall stk
-      return (Lambda y e)
+      fresh (Lambda y e)
     (stk,e) -> do
       deleteHeap x
       setStack stk
-      v' <- eval reduce e
+      v' <- eval e
       case v' of
         Exception msg -> return (Exception msg)
         v -> do
           stkv <- gets stack
           insertHeap x (stkv,v)
           setStack stk
-          eval reduce (Var x)
+          eval (Var x)
 
 reduce (CC l e) = do
   doPush l
-  eval reduce e
+  eval e
 
 --------------------------------------------------------------------------------
 -- Substituting variable names.
@@ -182,6 +191,44 @@ subst n m (CC l e)           = CC l (subst n m e)
 
 sub :: Name -> Name -> Name -> Name
 sub n m n' = if n == n' then m else n'
+
+--------------------------------------------------------------------------------
+-- Fresh variable names
+
+fresh :: Expr -> State Context Expr
+
+fresh (Const v) = do
+  return (Const v)
+
+fresh (Lambda x e) = do 
+  y <- getFreshVar
+  e' <- (fresh . subst x y) e
+  return (Lambda y e')
+
+fresh (Let (x,e1) e2) = do 
+  y <- getFreshVar
+  e1' <- (fresh . subst x y) e1
+  e2' <- (fresh . subst x y) e2
+  return $ Let (y,e1') e2'
+
+fresh (Apply f x) = do 
+  f' <- fresh f
+  return $ Apply f' x
+
+fresh (Var x) =
+  return (Var x)
+
+fresh (CC l e) = do
+  e' <- fresh e
+  return (CC l e')
+
+fresh e = error ("How to fresh this? " ++ show e)
+
+getFreshVar :: State Context Name
+getFreshVar = do
+  (x:xs) <- gets freshVarNames
+  modify $ \cxt -> cxt {freshVarNames=xs}
+  return x
 
 --------------------------------------------------------------------------------
 -- Examples.
