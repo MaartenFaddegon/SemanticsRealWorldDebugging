@@ -162,14 +162,9 @@ reduce (Apply f x) = do
 reduce (Var x) = do
   r <- lookupHeap x
   case r of
-    (_,Exception msg) -> do
-      return (Exception msg)
-    (stk,Const v) -> do
-      setStack stk
-      return (Const v)
-    (stk,Lambda y e) -> do
-      doCall stk
-      fresh (Lambda y e)
+    (_,Exception msg) -> return (Exception msg)
+    (stk,Const v) ->     reduceValue (stk,Const v)
+    (stk,Lambda y e) ->  reduceValue (stk,Lambda y e)
     (stk,e) -> do
       deleteHeap x
       setStack stk
@@ -179,8 +174,11 @@ reduce (Var x) = do
         v -> do
           stkv <- gets stack
           insertHeap x (stkv,v)
+          return v
+
+  where reduceValue (stk, expr) = do
           setStack stk
-          eval (Var x)
+          fresh expr
 
 reduce (ACCCorrect l e) = do
   stk <- gets stack
