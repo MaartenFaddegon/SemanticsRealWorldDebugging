@@ -376,7 +376,7 @@ arcsFrom src trc = (map (Arc src)) . (filter couldDependOn) $ trc
                          ++ apmap (map (callDependency2' src) trc) trc
 
                          -- application-as-parent
-                         -- ++ map (callDependency src) trc
+                         -- : map (callDependency src) trc
                         
                          -- neither
                          -- : []

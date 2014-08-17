@@ -351,6 +351,10 @@ arcsFrom src trc = (map (Arc src)) . (filter couldDependOn) $ trc
                          -- function-as-parent
                          : map (flip callDependency src) trc
 
+                         -- 2nd level application in function-as-parent
+                         ++ apmap (map (callDependency2 src) trc) trc
+                         ++ apmap (map (callDependency2' src) trc) trc
+
                          -- application-as-parent
                          -- : map (callDependency src) trc
                         
@@ -364,6 +368,9 @@ arcsFrom src trc = (map (Arc src)) . (filter couldDependOn) $ trc
         yna :: [a->Bool] -> a -> Bool
         yna ps x = or (map (\p -> p x) ps)
 
+        apmap :: [a->b] -> [a] -> [b]
+        apmap fs xs = foldl (\acc f -> acc ++ (map f xs)) [] fs
+
 
 nextStack :: Record -> Stack
 nextStack rec = push (recordLabel rec) (recordStack rec)
@@ -373,6 +380,14 @@ pushDependency p c = nextStack p == recordStack c
 
 callDependency :: Record -> Record -> Record -> Bool
 callDependency pApp pLam c = call (nextStack pApp) (nextStack pLam) == recordStack c
+
+callDependency2 pApp pApp' pLam' c = call (nextStack pApp) pLam == recordStack c
+  where pLam = call (nextStack pApp') (nextStack pLam')
+
+
+callDependency2' pApp1 pApp2 pLam c = call pApp (nextStack pLam) == recordStack c
+  where pApp = call (nextStack pApp1) (nextStack pApp2)
+
 
 --------------------------------------------------------------------------------
 -- Examples.
