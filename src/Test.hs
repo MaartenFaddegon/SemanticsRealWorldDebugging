@@ -44,6 +44,7 @@ gen_expr n = oneof [ elements [Const Right]
         gen_label = elements $ map (:[]) ['A'..'Z']
         gen_name  = elements $ map (:[]) ['x'..'z']
 
+-- generate random expression with chunks of the form '\x-> acc ...'
 gen_exprWeak :: Int -> Gen Expr
 gen_exprWeak 0 = elements [Const Right]
 gen_exprWeak n = oneof [ elements [Const Right]

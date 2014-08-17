@@ -372,10 +372,11 @@ arcsFrom src trc = (map (Arc src)) . (filter couldDependOn) $ trc
                          : map (flip callDependency src) trc
 
                          -- 2nd level application in function-as-parent
-                         -- ++ apmap (map (flip callDependency2 src) trc) trc
+                         ++ apmap (map (callDependency2 src) trc) trc
+                         ++ apmap (map (callDependency2' src) trc) trc
 
                          -- application-as-parent
-                         -- : map (callDependency src) trc
+                         -- ++ map (callDependency src) trc
                         
                          -- neither
                          -- : []
@@ -387,8 +388,8 @@ arcsFrom src trc = (map (Arc src)) . (filter couldDependOn) $ trc
         yna :: [a->Bool] -> a -> Bool
         yna ps x = or (map (\p -> p x) ps)
 
-        -- apmap :: [a->b] -> [a] -> [b]
-        -- apmap fs xs = foldl (\acc f -> acc ++ (map f xs)) [] fs
+        apmap :: [a->b] -> [a] -> [b]
+        apmap fs xs = foldl (\acc f -> acc ++ (map f xs)) [] fs
 
 
 nextStack :: Record -> Stack
@@ -400,8 +401,12 @@ pushDependency p c = nextStack p == recordStack c
 callDependency :: Record -> Record -> Record -> Bool
 callDependency pApp pLam c = call (nextStack pApp) (nextStack pLam) == recordStack c
 
--- callDependency2 pApp pApp' pLam' c = call (nextStack pApp) pLam == recordStack c
---   where pLam = call (nextStack pApp') (nextStack pLam')
+callDependency2 pApp pApp' pLam' c = call (nextStack pApp) pLam == recordStack c
+  where pLam = call (nextStack pApp') (nextStack pLam')
+
+
+callDependency2' pApp1 pApp2 pLam c = call pApp (nextStack pLam) == recordStack c
+  where pApp = call (nextStack pApp1) (nextStack pApp2)
 
 
 --------------------------------------------------------------------------------
@@ -409,8 +414,10 @@ callDependency pApp pLam c = call (nextStack pApp) (nextStack pLam) == recordSta
 
 findFaulty' :: CompGraph -> [[Record]]
 findFaulty' = findFaulty wrongCC mergeCC
-  where mergeCC ws = foldl (++) [] ws
-        wrongCC = foldl (\w r -> case recordRepr r of Wrong -> True; _ -> w) False
+
+mergeCC ws = foldl (++) [] ws
+
+wrongCC = foldl (\w r -> case recordRepr r of Wrong -> True; _ -> w) False
 
 debug :: Expr -> IO ()
 debug redex = do
@@ -433,8 +440,12 @@ tracedEval = mkGraph . mkEquations . evalWith
 
 disp :: Expr -> IO ()
 disp expr = do 
-  putStr messages
-  (display shw) . snd . mkGraph . mkEquations $ (reduct,trc)
+  -- putStr messages
+  writeFile "log" messages
+  (display shw) 
+               -- (collapse mergeCC) 
+               -- . remove 
+               . snd . mkGraph . mkEquations $ (reduct,trc)
   where (reduct,trc,messages) = evalWith' expr
         shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
@@ -516,15 +527,8 @@ e10 = ACCCorrect "root" (Apply (Apply (Let ("x",Lambda "y" (ACCFaulty "CC1" (App
 -- Demonstrating the need for two levels of calls. Could this be necessary for n-levels? :(
 -- See callDependency2.
 -- But this only "works" because the let lives behind its scope...
---
--- e11 = ACCCorrect "root" 
---       (Apply 
---         (Let ("y",ACCCorrect "CC1" (Var "f")) 
---         (Let ("f",ACCFaulty "CC2" 
---                 (Lambda "k" (ACCCorrect "CC3" (Lambda "x" (ACCFaulty "CC4" (Apply (Var "x") "y")))))
---              ) (Apply (Var "f") "f")
---         )) "y"
---       )
+
+e11 = ACCCorrect "root" (Let ("x",ACCCorrect "CC1" (Lambda "y" (ACCCorrect "CC2" (Apply (Lambda "x" (ACCCorrect "CC3" (Var "x"))) "y")))) (Apply (Apply (Lambda "x" (ACCCorrect "CC4" (Apply (Lambda "y" (Lambda "x" (Apply (Apply (Var "x") "x") "z"))) "z"))) "y") "x"))
 
 
 -- let a="a"; b="b";c="c";d="d";e="e"
