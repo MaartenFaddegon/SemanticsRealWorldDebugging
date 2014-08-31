@@ -5,6 +5,7 @@ import Prelude hiding (Right)
 import Data.Graph.Libgraph
 import Data.List (sort)
 import GHC.Exts (sortWith)
+import Data.List (partition)
 
 --------------------------------------------------------------------------------
 -- Expressions
@@ -48,7 +49,7 @@ evalWith :: Expr -> (Expr,Trace)
 evalWith redex = (reduct, trace cxt)
   where (reduct,cxt) = runState (eval redex) state0
 
-state0 = Context [] 0 [] [] 0 1 [] (map (("x"++) . show) [1..])
+state0 = Context [] 0 [] [] 0 1 [] (map (("fresh"++) . show) [1..])
 
 eval :: (Expr -> State Context Expr)
 eval expr = do 
@@ -91,19 +92,19 @@ lookupHeap x = do
 type Label = String
 type Stack = [Label]
 
-stackIsNow = do
+stackIsNow msg = do
   stk <- gets stack
-  doLog ("* Stack is now " ++ show stk)
+  doLog ("* " ++ msg ++ ": stack is now " ++ show stk)
 
 setStack :: Stack -> State Context ()
 setStack stk = do
   modify $ \s -> s {stack = stk}
-  stackIsNow
+  stackIsNow "Restore stack from heap"
 
 doPush :: Label -> State Context ()
 doPush l = do
   modify $ \s -> s {stack = push l (stack s)}
-  stackIsNow
+  stackIsNow $ "Push " ++ l
 
 push :: Label -> Stack -> Stack
 push l s
@@ -113,9 +114,8 @@ push l s
 doCall :: Stack -> State Context ()
 doCall sLam = do
   stk <- gets stack
-  doLog ("* call " ++ show stk ++ " " ++ show sLam)
   modify $ \s -> s {stack = call (stack s) sLam}
-  stackIsNow
+  stackIsNow $ "Call " ++ show stk ++ " " ++ show sLam
 
 call :: Stack -> Stack -> Stack
 call sApp sLam = sLam' ++ sApp
@@ -164,7 +164,9 @@ reduce (Var x) = do
   case r of
     (_,Exception msg) -> return (Exception msg)
     (stk,Const v) ->     reduceValue (stk,Const v)
-    (stk,Lambda y e) ->  reduceValue (stk,Lambda y e)
+    (stk,Lambda y e) ->  do
+       doCall stk
+       fresh (Lambda y e)
     (stk,e) -> do
       deleteHeap x
       setStack stk
@@ -174,7 +176,7 @@ reduce (Var x) = do
         v -> do
           stkv <- gets stack
           insertHeap x (stkv,v)
-          return v
+          eval (Var x) -- To make sure a call happens when it needs to happen.
 
   where reduceValue (stk, expr) = do
           setStack stk
@@ -348,47 +350,63 @@ merge rec arg res = rec{ recordRepr=(recordRepr rec) `or` (jmt res) `argOr` (jmt
 --------------------------------------------------------------------------------
 -- Debug
 
-type CompGraph = Graph [Record]
+data Dependency = PushDep | CallDep Int deriving (Eq,Show)
+
+instance Ord Dependency where
+  compare PushDep (CallDep _)     = LT
+  compare (CallDep _) PushDep     = GT
+  compare (CallDep n) (CallDep m) = compare n m
+  compare PushDep PushDep         = EQ
+
+type CompGraph = Graph [Record] Dependency
 
 mkGraph :: (Expr,Trace) -> (Expr,CompGraph)
 mkGraph (reduct,trc) = (reduct,mapGraph (\r->[r]) (mkGraph' trc))
 
-mkGraph' :: Trace -> Graph (Record)
+mkGraph' :: Trace -> Graph Record Dependency
 mkGraph' trace
   | length trace < 1 = error "mkGraph: empty trace"
   | length roots < 1 = error "mkGraph: no root"
   | otherwise = Graph (head roots)
                        trace
-                       (foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
+                       (nubMin $ foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
   where roots = filter (\rec -> recordStack rec == []) trace
 
-arcsFrom :: Record -> Trace -> [Arc Record]
-arcsFrom src trc = (map (Arc src)) . (filter couldDependOn) $ trc
-  where couldDependOns = pushDependency src 
+nubMin :: (Eq a, Ord b) => [Arc a b] -> [Arc a b]
+nubMin l = nub' l []
+  where
 
-                         -- function-as-parent
-                         : map (flip callDependency src) trc
+    nub' [] _           = []
+    nub' (x:xs) ls = let (sat,unsat) = partition (equiv x) ls
+                     in case sat of
+                        [] -> x : nub' xs (x:ls)
+                        _  -> nub' xs ((minimum' $ x:sat) : unsat )
 
-                         -- 2nd level application in function-as-parent
-                         ++ apmap (map (callDependency2 src) trc) trc
-                         ++ apmap (map (callDependency2' src) trc) trc
+    minimum' as = (head as) { arc = minimum (map arc as) }
 
-                         -- application-as-parent
-                         -- : map (callDependency src) trc
-                        
-                         -- neither
-                         -- : []
+    equiv (Arc v w _) (Arc x y _) = v == x && w == y
 
+arcsFrom :: Record -> Trace -> [Arc Record Dependency]
+arcsFrom src trc =  ((map (\tgt -> Arc src tgt PushDep)) . (filter isPushArc) $ trc)
+                 ++ ((map (\tgt -> Arc src tgt (CallDep 1))) . (filter isCall1Arc) $ trc)
+                 -- ++ ((map (\tgt -> Arc src tgt (CallDep 2))) . (filter isCall2Arc) $ trc)
+                 
 
-        couldDependOn  = yna couldDependOns
+  where isPushArc = pushDependency src
+        
+        isCall1Arc = -- function-as-parent
+                    anyOf $ map (flip callDependency src) trc
+                    -- application-as-parent
+                    -- anyOf $ map (callDependency src) trc
 
-        -- The reverse of any
-        yna :: [a->Bool] -> a -> Bool
-        yna ps x = or (map (\p -> p x) ps)
+        isCall2Arc = anyOf $  apmap (map (callDependency2 src) trc) trc
+                           ++ apmap (map (callDependency2' src) trc) trc
+
+        anyOf :: [a->Bool] -> a -> Bool
+        anyOf ps x = or (map (\p -> p x) ps)
 
         apmap :: [a->b] -> [a] -> [b]
         apmap fs xs = foldl (\acc f -> acc ++ (map f xs)) [] fs
-
 
 nextStack :: Record -> Stack
 nextStack rec = push (recordLabel rec) (recordStack rec)
@@ -438,7 +456,7 @@ tracedEval = mkGraph . mkEquations . evalWith
 
 disp :: Expr -> IO ()
 disp expr = do 
-  -- putStr messages
+  putStr messages
   writeFile "log" messages
   (display shw) 
                -- (collapse mergeCC) 
@@ -450,7 +468,7 @@ disp expr = do
         showVertex = (foldl (++) "") . (map showRecord)
         showRecord rec = recordLabel rec ++ " = " ++ show (recordRepr rec) 
                          ++ " (with stack " ++ show (recordStack rec) ++ ")\n"
-        showArc _  = ""
+        showArc (Arc _ _ dep)  = show dep
 
 e1 = ACCFaulty "A" (Const Right)
 
@@ -526,9 +544,26 @@ e10 = ACCCorrect "root" (Apply (Apply (Let ("x",Lambda "y" (ACCFaulty "CC1" (App
 -- See callDependency2.
 -- But this only "works" because the let lives behind its scope...
 
-e11 = ACCCorrect "root" (Let ("x",ACCCorrect "CC1" (Lambda "y" (ACCCorrect "CC2" (Apply (Lambda "x" (ACCCorrect "CC3" (Var "x"))) "y")))) (Apply (Apply (Lambda "x" (ACCCorrect "CC4" (Apply (Lambda "y" (Lambda "x" (Apply (Apply (Var "x") "x") "z"))) "z"))) "y") "x"))
+e11 = ACCCorrect "root" (Let ("x",ACCCorrect "CC1" (Lambda "y" (ACCFaulty "CC2" (Apply (Lambda "x" (ACCCorrect "CC3" (Var "x"))) "y")))) (Apply (Apply (Lambda "x" (ACCCorrect "CC4" (Apply (Lambda "y" (Lambda "x" (Apply (Apply (Var "x") "x") "z"))) "z"))) "y") "x"))
 
 
--- let a="a"; b="b";c="c";d="d";e="e"
+-- id = \i -> i
+-- x  = 3
+-- main = (id id) x
+e12 = cclet "let1" (h "id1")
+        (cclet "let2" (g "id2")
+          (cclet "let3" (g "id3")
+            (cclet "let4" x
+              ( ACCCorrect "main"
+                (Apply (Apply (Apply (Var "id3") "id2") "id1") "x")
+              )
+            )
+          )
+        )
 
--- main = disp e11
+        where 
+          f lbl         = (lbl, ACCCorrect lbl (Lambda "i" (Var "i")))
+          g lbl         = (lbl, Lambda "i" (ACCCorrect lbl (Var "i")))
+          h lbl         = (lbl, (Lambda "i" (Var "i")))
+          x             = ("x", (ACCCorrect "x" (Const Right)))
+          cclet lbl b i = ACCCorrect lbl (Let b i)

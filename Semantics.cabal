@@ -7,7 +7,7 @@ Cabal-Version:  >= 1.10
 extra-source-files: README
 
 Executable Semantics-test
-  Build-Depends:     base >= 4 && < 5, monads-tf, QuickCheck, libgraph
+  Build-Depends:     base >= 4 && < 5, monads-tf, QuickCheck, libgraph == 1.1
   hs-source-dirs:    src
   main-is:           Test.hs
   other-modules:     IntendedSemantics

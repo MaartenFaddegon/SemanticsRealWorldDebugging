@@ -159,14 +159,9 @@ reduce (Apply f x) = do
 reduce (Var x) = do
   r <- lookupHeap x
   case r of
-    (_,Exception msg) -> do
-      return (Exception msg)
-    (stk,Const v) -> do
-      setStack stk
-      return (Const v)
-    (stk,Lambda y e) -> do
-      doCall stk
-      fresh (Lambda y e)
+    (_,Exception msg) -> return (Exception msg)
+    (stk,Const v) ->     reduceValue (stk,Const v)
+    (stk,Lambda y e) ->  reduceValue (stk,Lambda y e)
     (stk,e) -> do
       deleteHeap x
       setStack stk
@@ -176,8 +171,11 @@ reduce (Var x) = do
         v -> do
           stkv <- gets stack
           insertHeap x (stkv,v)
+          return v
+
+  where reduceValue (stk, expr) = do
           setStack stk
-          eval (Var x)
+          fresh expr
 
 reduce (ACC l e) = do
   stk <- gets stack
@@ -333,43 +331,66 @@ merge rec arg res =
 --------------------------------------------------------------------------------
 -- Debug
 
-type CompGraph = Graph [Record]
+data Dependency = PushDep | CallDep Int
+type CompGraph = Graph [Record] Dependency
 
 mkGraph :: (Expr,Trace) -> (Expr,CompGraph)
 mkGraph (reduct,trc) = (reduct,mapGraph (\r->[r]) (mkGraph' trc))
 
-mkGraph' :: Trace -> Graph (Record)
+mkGraph' :: Trace -> Graph Record Dependency
 mkGraph' trace = Graph (head roots)
                        trace
                        (foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
   where roots = filter (\rec -> recordStack rec == []) trace
 
-arcsFrom :: Record -> Trace -> [Arc Record]
-arcsFrom src trc = (map (Arc src)) . (filter couldDependOn) $ trc
-  where couldDependOns = pushDependency src 
+arcsFrom :: Record -> Trace -> [Arc Record Dependency]
+arcsFrom src trc =  ((map (\tgt -> Arc src tgt PushDep)) . (filter isPushArc) $ trc)
+                 ++ ((map (\tgt -> Arc src tgt (CallDep 1))) . (filter isCall1Arc) $ trc)
+                 ++ ((map (\tgt -> Arc src tgt (CallDep 2))) . (filter isCall2Arc) $ trc)
+                 
 
-                         -- function-as-parent
-                         : map (flip callDependency src) trc
+  where isPushArc = pushDependency src
+        
+        isCall1Arc = -- function-as-parent
+                    anyOf $ map (flip callDependency src) trc
+                    -- application-as-parent
+                    -- map (callDependency src) trc
 
-                         -- 2nd level application in function-as-parent
-                         ++ apmap (map (callDependency2 src) trc) trc
-                         ++ apmap (map (callDependency2' src) trc) trc
+        isCall2Arc = anyOf $  apmap (map (callDependency2 src) trc) trc
+                           ++ apmap (map (callDependency2' src) trc) trc
 
-                         -- application-as-parent
-                         -- : map (callDependency src) trc
-                        
-                         -- neither
-                         -- : []
-
-
-        couldDependOn  = yna couldDependOns
-
-        -- The reverse of any
-        yna :: [a->Bool] -> a -> Bool
-        yna ps x = or (map (\p -> p x) ps)
+        anyOf :: [a->Bool] -> a -> Bool
+        anyOf ps x = or (map (\p -> p x) ps)
 
         apmap :: [a->b] -> [a] -> [b]
         apmap fs xs = foldl (\acc f -> acc ++ (map f xs)) [] fs
+
+
+
+-- arcsFrom src trc =  arcFilter PushDep pushDependency
+--                  ++ arcFilter (CallDep 1) (flip callDependency)
+-- 
+--   where arcFilter typ f = (map (\tgt -> Arc src tgt typ)) . (filter f) $ trc
+-- 
+-- 
+-- 
+-- 
+  -- where couldDependOns = pushDependency src 
+
+  --                        -- function-as-parent
+  --                        : map (flip callDependency src) trc
+
+  --                        -- 2nd level application in function-as-parent
+  --                        ++ apmap (map (callDependency2 src) trc) trc
+  --                        ++ apmap (map (callDependency2' src) trc) trc
+
+  --                        -- application-as-parent
+  --                        -- : map (callDependency src) trc
+  --                       
+  --                        -- neither
+  --                        -- : []
+
+
 
 
 nextStack :: Record -> Stack
@@ -472,3 +493,20 @@ e8 = ACC "root" (Let ("y",ACC "LET" (Const 42))
 
 
 e9 = ACC "root" (Apply (Apply (Let ("x",Let ("y",Apply (Lambda "z" (ACC "CC1" (Lambda "y" (Var "z")))) "y") (Lambda "x" (ACC "CC2" (Var "x")))) (Apply (Let ("z",Apply (Lambda "z" (Var "y")) "z") (Apply (Apply (Var "x") "x") "z")) "y")) "x") "y")
+
+-- Demonstrating the need for two levels of calls. Could this be necessary for n-levels? :(
+-- See callDependency2.
+-- But this only "works" because the let lives behind its scope...
+
+e11 = 
+  ACC "root"
+    (Let ("x",ACC "CC1" (Lambda "y" (ACC "CC2" (Apply (Lambda "x" (ACC "CC3" (Var "x"))) "y")))) 
+         (Apply 
+           (Apply
+             (Lambda "x" (ACC "CC4" (Apply (Lambda "y" (Lambda "x" (Apply (Apply (Var "x") "x") "z")))
+                                           "z"
+                                    )
+                         )) 
+             "y") 
+           "x")
+    )

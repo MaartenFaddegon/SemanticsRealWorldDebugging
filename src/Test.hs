@@ -130,7 +130,7 @@ sound e = propValidExpr e' ==> propSubset e' .&&. propFaultyIfWrong e'
 
 main = quickCheckWith args sound
   where args = Args { replay          = Nothing
-                    , maxSuccess      = 10000  -- number of tests
+                    , maxSuccess      = 800  -- number of tests
                     , maxDiscardRatio = 100
                     , maxSize         = 1000   -- max subexpressions
                     , chatty          = True
