@@ -117,6 +117,7 @@ doCall sLam = do
   modify $ \s -> s {stack = call (stack s) sLam}
   stackIsNow $ "Call " ++ show stk ++ " " ++ show sLam
 
+-- call sApp sLam ∉ {sApp, SLam} when sLam is not a prefix of sApp.
 call :: Stack -> Stack -> Stack
 call sApp sLam = sLam' ++ sApp
   where (sPre,sApp',sLam') = commonPrefix sApp sLam
@@ -456,7 +457,7 @@ tracedEval = mkGraph . mkEquations . evalWith
 
 disp :: Expr -> IO ()
 disp expr = do 
-  putStr messages
+  -- putStr messages
   writeFile "log" messages
   (display shw) 
                -- (collapse mergeCC) 
@@ -546,24 +547,16 @@ e10 = ACCCorrect "root" (Apply (Apply (Let ("x",Lambda "y" (ACCFaulty "CC1" (App
 
 e11 = ACCCorrect "root" (Let ("x",ACCCorrect "CC1" (Lambda "y" (ACCFaulty "CC2" (Apply (Lambda "x" (ACCCorrect "CC3" (Var "x"))) "y")))) (Apply (Apply (Lambda "x" (ACCCorrect "CC4" (Apply (Lambda "y" (Lambda "x" (Apply (Apply (Var "x") "x") "z"))) "z"))) "y") "x"))
 
-
--- id = \i -> i
--- x  = 3
--- main = (id id) x
-e12 = cclet "let1" (h "id1")
-        (cclet "let2" (g "id2")
-          (cclet "let3" (g "id3")
-            (cclet "let4" x
-              ( ACCCorrect "main"
-                (Apply (Apply (Apply (Var "id3") "id2") "id1") "x")
+e12 = cclet "let1"        ("ap1", ap)
+        (cclet "let2"     ("ap2", ap)
+          (cclet "let3"   ("f", ACCCorrect "f" (Lambda "i" (Var "i")))
+            (cclet "let4" ("x", ACCFaulty "x" (Const Right))
+              (ACCCorrect "main"
+                $ Apply (Apply (Apply (Var "ap1") "ap2") "f") "x"
               )
             )
           )
         )
 
-        where 
-          f lbl         = (lbl, ACCCorrect lbl (Lambda "i" (Var "i")))
-          g lbl         = (lbl, Lambda "i" (ACCCorrect lbl (Var "i")))
-          h lbl         = (lbl, (Lambda "i" (Var "i")))
-          x             = ("x", (ACCCorrect "x" (Const Right)))
-          cclet lbl b i = ACCCorrect lbl (Let b i)
+        where cclet lbl b i = ACCCorrect lbl (Let b i)
+              ap = Lambda "fun" (Lambda "arg" (Apply (Var "fun") "arg"))
