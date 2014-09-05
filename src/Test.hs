@@ -2,17 +2,20 @@ import IntendedSemantics
 import Control.Monad.State(liftM,liftM2,liftM3)
 import Prelude hiding (Right)
 import Test.QuickCheck
+import Test.QuickCheck.Property(succeeded, failed)
 import Data.Graph.Libgraph
 
 --------------------------------------------------------------------------------
 -- Algorithmic debugging from a trace
 
-faultyNodes :: Expr -> [[Label]]
-faultyNodes = getLabels . oldest . findFaulty' . snd . mkGraph . mkEquations . evalWith
+-- faultyNodes :: Expr -> [[Label]]
+-- faultyNodes = getLabels . oldest . findFaulty' . snd . mkGraph . mkEquations . evalWith
+
+faultyNodes :: Trace -> [[Label]]
+faultyNodes trc = getLabels . oldest . findFaulty' . snd . mkGraph $ (Const Right, trc)
 
 getLabels :: [[Record]] -> [[Label]]
 getLabels = map (map recordLabel)
-
 
 --------------------------------------------------------------------------------
 -- List of faulty expressions (static analysis)
@@ -57,9 +60,9 @@ gen_exprWeak n = oneof [ elements [Const Right]
         mkLet n e1 e2 = Let (n,e1) e2
         gen_label = elements $ map (:[]) ['A'..'Z']
         gen_name  = elements $ map (:[]) ['x'..'z']
-        gen_acc   = oneof [ liftM2 ACCCorrect gen_label gen_expr'
-                          , liftM2 ACCFaulty  gen_label gen_expr'
-                          ]
+        gen_acc   = frequency [ (1, liftM2 ACCCorrect gen_label gen_expr')
+                              , (5, liftM2 ACCFaulty  gen_label gen_expr')
+                              ]
 
 uniqueLabels :: Expr -> Expr
 uniqueLabels e = snd (uniqueLabels' lbls e)
@@ -99,34 +102,40 @@ instance Arbitrary Expr where
 --------------------------------------------------------------------------------
 -- Propositions
 
--- MF TODO: should we really allow any redex that doesn't throw an expression?
-propValidExpr :: Expr -> Bool
-propValidExpr e = case fst (evalWith e) of (Exception _) -> False; _ -> True
-
--- propExact :: Expr -> Bool
--- propExact e = faultyNodes e == faultyExprs e
-
-propSubset :: Expr -> Bool
-propSubset e = (faultyNodes e) `anySubset` (faultyExprs e)
-
 anySubset :: Eq a => [[a]] -> [a] -> Bool
 anySubset xss ys = foldr ((&&) . any (`elem` ys)) True xss
 
 subset :: Eq a => [a] -> [a] -> Bool
 subset xs ys = foldr ((&&) . (`elem` ys)) True xs
 
-propFoundFaulty :: Expr -> Bool
-propFoundFaulty e = faultyNodes e /= []
+isWrong (Const Wrong) = True
+isWrong _             = False
 
-propIsWrong :: Expr -> Bool
-propIsWrong e = case fst (evalWith e) of
-  (Const Wrong) -> True
-  _             -> False
+isRight (Const Right) = True
+isRight _             = False
 
-propFaultyIfWrong e = propIsWrong e ==> propFoundFaulty e
+when :: Bool -> Bool -> Bool
+when testb cond = if cond then testb else True
 
-sound e = propValidExpr e' ==> propSubset e' .&&. propFaultyIfWrong e'
-  where e'   = ACCCorrect "root" (uniqueLabels e)
+sound :: Expr -> Property
+sound e = valid ==> (classify (trc == [])     "Trivial trace")
+          $         (classify (statFCC == []) "Trivial expression")
+          $         (classify (isWrong r)     "Reduces to 'Const Wrong'")
+          $         (classify (isRight r)     "Reduces to 'Const Right'")
+
+          (    -- If the reduct is Wrong we marked some cost centre(s) as faulty.
+               property ((dynFCC /= []) `when` (isWrong r))
+                
+               -- One of the cost-centres in the faulty node is actually faulty.
+          .&&. property (dynFCC `anySubset` statFCC)
+
+          )
+
+  where e'      = ACCCorrect "root" (uniqueLabels e)
+        (r,trc) = (mkEquations . evalWith) e'
+        valid   = case r of (Const _) -> True; _ -> False
+        dynFCC  = faultyNodes trc
+        statFCC = faultyExprs e'
 
 main = quickCheckWith args sound
   where args = Args { replay          = Nothing

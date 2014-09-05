@@ -79,6 +79,10 @@ insertHeap x e = do
 deleteHeap :: Name -> State Context ()
 deleteHeap x = modify $ \s -> s{heap = filter ((/= x) . fst) (heap s)}
 
+updateHeap x e = do
+  deleteHeap x
+  insertHeap x e
+
 lookupHeap :: Name -> State Context (Stack,Expr)
 lookupHeap x = do 
   me <- fmap (lookup x . heap) get
@@ -161,27 +165,19 @@ reduce (Apply f x) = do
     _             -> return (Exception "Apply non-Lambda?")
 
 reduce (Var x) = do
-  r <- lookupHeap x
-  case r of
-    (_,Exception msg) -> return (Exception msg)
-    (stk,Const v) ->     reduceValue (stk,Const v)
-    (stk,Lambda y e) ->  do
-       doCall stk
-       fresh (Lambda y e)
-    (stk,e) -> do
-      deleteHeap x
-      setStack stk
-      v' <- eval e
-      case v' of
-        Exception msg -> return (Exception msg)
-        v -> do
-          stkv <- gets stack
-          insertHeap x (stkv,v)
-          eval (Var x) -- To make sure a call happens when it needs to happen.
+  stk       <- gets stack
+  (xStk,e') <- lookupHeap x
 
-  where reduceValue (stk, expr) = do
-          setStack stk
-          fresh expr
+  setStack xStk
+  e         <- eval e'
+  xStk'     <- gets stack
+  updateHeap x (xStk',e')
+  setStack stk
+
+  case e' of
+     (Lambda _ _) -> do doCall xStk'
+                        fresh e'
+     _            -> do fresh e'
 
 reduce (ACCCorrect l e) = do
   stk <- gets stack
@@ -217,6 +213,8 @@ reduce (Observed l s p e) = do
       return (Lambda x'' body)
     e -> 
       return (Exception $ "Observe undefined: " ++ show e)
+
+reduce (Exception msg) = return (Exception msg)
 
 --------------------------------------------------------------------------------
 -- Substituting variable names.
@@ -272,7 +270,7 @@ fresh (Observed l s p e) = do
   e' <- fresh e
   return (Observed l s p e')
 
-fresh e = error ("How to fresh this? " ++ show e)
+fresh (Exception msg) = return (Exception msg)
 
 getFreshVar :: State Context Name
 getFreshVar = do
@@ -547,16 +545,23 @@ e10 = ACCCorrect "root" (Apply (Apply (Let ("x",Lambda "y" (ACCFaulty "CC1" (App
 
 e11 = ACCCorrect "root" (Let ("x",ACCCorrect "CC1" (Lambda "y" (ACCFaulty "CC2" (Apply (Lambda "x" (ACCCorrect "CC3" (Var "x"))) "y")))) (Apply (Apply (Lambda "x" (ACCCorrect "CC4" (Apply (Lambda "y" (Lambda "x" (Apply (Apply (Var "x") "x") "z"))) "z"))) "y") "x"))
 
-e12 = cclet "let1"        ("ap1", ap)
-        (cclet "let2"     ("ap2", ap)
-          (cclet "let3"   ("f", ACCCorrect "f" (Lambda "i" (Var "i")))
-            (cclet "let4" ("x", ACCFaulty "x" (Const Right))
-              (ACCCorrect "main"
-                $ Apply (Apply (Apply (Var "ap1") "ap2") "f") "x"
-              )
-            )
-          )
-        )
+e12 = Let            ("f", ACCCorrect "f" $ Lambda "x" (Var "x"))
+      $ Let          ("g", ACCCorrect "g" $ Lambda "y" (Apply (Var "f") "y"))
+      $ Let          ("c", ACCCorrect "c" $ Const Right)
+      $ {- in -}     ACCCorrect "main" (Apply (Var "g") "c")
 
-        where cclet lbl b i = ACCCorrect lbl (Let b i)
-              ap = Lambda "fun" (Lambda "arg" (Apply (Var "fun") "arg"))
+      where cclet lbl b i = ACCCorrect lbl (Let b i)
+
+-- e12 = cclet "let1"        ("ap1", ap)
+--         (cclet "let2"     ("ap2", ap)
+--           (cclet "let3"   ("f", ACCCorrect "f" (Lambda "i" (Var "i")))
+--             (cclet "let4" ("x", ACCFaulty "x" (Const Right))
+--               (ACCCorrect "main"
+--                 $ Apply (Apply (Apply (Var "ap1") "ap2") "f") "x"
+--               )
+--             )
+--           )
+--         )
+-- 
+--         where cclet lbl b i = ACCCorrect lbl (Let b i)
+--               ap = Lambda "fun" (Lambda "arg" (Apply (Var "fun") "arg"))
