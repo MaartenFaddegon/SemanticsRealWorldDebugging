@@ -206,11 +206,12 @@ reduce (Observed l s p e) = do
       return e'
     (Lambda x e) -> do
       uid <- getUniq
-      let x' = "_1" ++ x; x'' = "_2" ++ x
-          body = Let (x',Observed l stk (ArgOf uid) (Var x'')) 
-                     (Apply (Lambda x (Observed l s (ResOf uid) e)) x')
+      x1 <- getFreshVar
+      x2 <- getFreshVar
+      let body = Let (x1,Observed l stk (ArgOf uid) (Var x2)) 
+                     (Apply (Lambda x (Observed l s (ResOf uid) e)) x1)
       doTrace (Record l s uid p Right)
-      return (Lambda x'' body)
+      return (Lambda x2 body)
     e -> 
       return (Exception $ "Observe undefined: " ++ show e)
 
