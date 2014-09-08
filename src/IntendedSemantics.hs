@@ -6,6 +6,7 @@ import Data.Graph.Libgraph
 import Data.List (sort)
 import GHC.Exts (sortWith)
 import Data.List (partition)
+import Data.Algorithm.Diff
 
 --------------------------------------------------------------------------------
 -- Expressions
@@ -62,8 +63,16 @@ eval expr = do
         modify $ \cxt -> cxt{depth=d+1}
         doLog (show n ++ ": " ++ show expr)
         reduct <- reduce expr
+        doLog (show n ++ ": " ++ show reduct)
+        doLog (show n ++ "  " ++ diffshow expr reduct)
         modify $ \cxt -> cxt{depth=d}
         return reduct
+
+  where diffshow :: Expr -> Expr -> String
+        diffshow expr reduct = let shw (First _)  = '-'
+                                   shw (Second _) = '+'
+                                   shw (Both _ _) = ' '
+                               in map shw $ getDiff (show expr) (show reduct)
 
 --------------------------------------------------------------------------------
 -- Manipulating the heap.
@@ -155,10 +164,13 @@ reduce (Let (x,e1) e2) = do
   before <- lookupHeap x
   stk <- gets stack
   insertHeap x (stk,e1)
-  reduct <- eval e2
-  deleteHeap x
-  insertHeap x before
-  return reduct
+  eval e2
+
+  -- reduct <- eval e2
+  -- doLog $ "Delete " ++ x ++ " from heap."
+  -- deleteHeap x
+  -- insertHeap x before
+  -- return reduct
 
 reduce (Apply f x) = do
   e <- eval f
@@ -175,16 +187,15 @@ reduce (Var x) = do
   setStack xStk                      -- Restore stack as saved on heap
   e         <- eval e'
   xStk'     <- gets stack
-  updateHeap x (xStk',e')            -- Update stack (and expression) on heap
+  updateHeap x (xStk',e)             -- Update stack (and expression) on heap
   setStack stk                       -- Restore stack as before evaluating
-  case e' of
+  case e of
      (Lambda _ _) -> do doCall xStk' -- For functions: the current stack is the
                                      -- call-site stack, xStk' is the "lambda"
                                      -- stack. Here we combine the two as Marlow,
                                      -- Solving An Old Problem.
-                        fresh e'
-     _            -> do fe <- fresh e'
-                        eval fe
+                        fresh e
+     _            -> do fresh e
 
 reduce (ACCCorrect l e) = do
   stk <- gets stack
@@ -215,8 +226,8 @@ reduce (Observed l s p e) = do
       uid <- getUniq
       x1 <- getFreshVar
       x2 <- getFreshVar
-      let body = Let (x1,Observed l stk (ArgOf uid) (Var x2)) 
-                     (Apply (Lambda x (Observed l s (ResOf uid) e)) x1)
+      let body = Let    (x1,Observed l stk (ArgOf uid) (Var x2)) 
+                 {-in-} (Apply (Lambda x (Observed l s (ResOf uid) e)) x1)
       doTrace (Record l s uid p Right)
       return (Lambda x2 body)
     e -> 
@@ -362,7 +373,7 @@ data Dependency = PushDep | CallDep Int deriving (Eq,Show)
 instance Ord Dependency where
   compare PushDep (CallDep _)     = LT
   compare (CallDep _) PushDep     = GT
-  compare (CallDep n) (CallDep m) = compare m n
+  compare (CallDep n) (CallDep m) = compare n m
   compare PushDep PushDep         = EQ
 
 type CompGraph = Graph [Record] Dependency
@@ -501,6 +512,16 @@ e5 =  ACCCorrect "main"
                    ( Lambda "f" (Lambda "x" (Apply (Var "f") "x"))
                    )
                  ) "id" ) "i"
+               )
+      )
+      )
+
+e5' = ( Let    ("i", (Const Right)) 
+      ( Let    ("id",ACCFaulty "id" (Lambda "y" (Var "y")))
+      {- in -} ( Apply 
+                 ( Apply 
+                   ( Lambda "f" (Lambda "x" (Apply (Var "f") "x"))
+                   ) "id" ) "i"
                )
       )
       )
