@@ -75,6 +75,10 @@ insertHeap x e = do
 deleteHeap :: Name -> State Context ()
 deleteHeap x = modify $ \s -> s{heap = filter ((/= x) . fst) (heap s)}
 
+updateHeap x e = do
+  deleteHeap x
+  insertHeap x e
+
 lookupHeap :: Name -> State Context (Stack,Expr)
 lookupHeap x = do 
   me <- fmap (lookup x . heap) get
@@ -88,19 +92,19 @@ lookupHeap x = do
 type Label = String
 type Stack = [Label]
 
-stackIsNow = do
+stackIsNow msg = do
   stk <- gets stack
-  doLog ("* Stack is now " ++ show stk)
+  doLog ("* " ++ msg ++ ": stack is now " ++ show stk)
 
 setStack :: Stack -> State Context ()
 setStack stk = do
   modify $ \s -> s {stack = stk}
-  stackIsNow
+  stackIsNow "Restore stack from heap"
 
 doPush :: Label -> State Context ()
 doPush l = do
   modify $ \s -> s {stack = push l (stack s)}
-  stackIsNow
+  stackIsNow $ "Push " ++ l
 
 push :: Label -> Stack -> Stack
 push l s
@@ -110,10 +114,10 @@ push l s
 doCall :: Stack -> State Context ()
 doCall sLam = do
   stk <- gets stack
-  doLog ("* call " ++ show stk ++ " " ++ show sLam)
   modify $ \s -> s {stack = call (stack s) sLam}
-  stackIsNow
+  stackIsNow $ "Call " ++ show stk ++ " " ++ show sLam
 
+-- call sApp sLam ∉ {sApp, SLam} when sLam is not a prefix of sApp.
 call :: Stack -> Stack -> Stack
 call sApp sLam = sLam' ++ sApp
   where (sPre,sApp',sLam') = commonPrefix sApp sLam
@@ -157,25 +161,19 @@ reduce (Apply f x) = do
     _             -> return (Exception "Apply non-Lambda?")
 
 reduce (Var x) = do
-  r <- lookupHeap x
-  case r of
-    (_,Exception msg) -> return (Exception msg)
-    (stk,Const v) ->     reduceValue (stk,Const v)
-    (stk,Lambda y e) ->  reduceValue (stk,Lambda y e)
-    (stk,e) -> do
-      deleteHeap x
-      setStack stk
-      v' <- eval e
-      case v' of
-        Exception msg -> return (Exception msg)
-        v -> do
-          stkv <- gets stack
-          insertHeap x (stkv,v)
-          return v
+  stk       <- gets stack
+  (xStk,e') <- lookupHeap x
 
-  where reduceValue (stk, expr) = do
-          setStack stk
-          fresh expr
+  setStack xStk
+  e         <- eval e'
+  xStk'     <- gets stack
+  updateHeap x (xStk',e')
+  setStack stk
+
+  case e' of
+     (Lambda _ _) -> do doCall xStk'
+                        fresh e'
+     _            -> do fresh e'
 
 reduce (ACC l e) = do
   stk <- gets stack
@@ -194,11 +192,12 @@ reduce (Observed l s p e) = do
       return e'
     (Lambda x e) -> do
       uid <- getUniq
-      let x' = "_1" ++ x; x'' = "_2" ++ x
-          body = Let (x',Observed l stk (ArgOf uid) (Var x'')) 
-                     (Apply (Lambda x (Observed l s (ResOf uid) e)) x')
+      x1 <- getFreshVar
+      x2 <- getFreshVar
+      let body = Let (x1,Observed l stk (ArgOf uid) (Var x2)) 
+                     (Apply (Lambda x (Observed l s (ResOf uid) e)) x1)
       doTrace (Record l s uid p "\\")
-      return (Lambda x'' body)
+      return (Lambda x2 body)
     e -> 
       return (Exception $ "Observe undefined: " ++ show e)
 
@@ -264,13 +263,15 @@ getFreshVar = do
 
 type Trace = [Record]
 
-data Record = Record
-  { recordLabel  :: Label
-  , recordStack  :: Stack
-  , recordUID    :: UID
-  , recordParent :: Parent
-  , recordRepr   :: String
-  } deriving (Show,Eq,Ord)
+data Record 
+  = Record
+    { recordLabel  :: Label
+    , recordStack  :: Stack
+    , recordUID    :: UID
+    , recordParent :: Parent
+    , recordRepr   :: String
+    }
+    deriving (Show,Eq,Ord)
 
 type UID = Int
 

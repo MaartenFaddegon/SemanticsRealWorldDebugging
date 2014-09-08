@@ -72,6 +72,7 @@ type Name = String
 type Heap = [(Name,(Stack,Expr))]
 
 insertHeap :: Name -> (Stack,Expr) -> State Context ()
+insertHeap x (_,Exception _) = return ()
 insertHeap x e = do
   modify $ \s -> s{heap = (x,e) : (heap s)}
   doLog ("* added " ++ (show (x,e)) ++ " to heap")
@@ -151,10 +152,12 @@ reduce (Lambda x e) =
   return (Lambda x e)
 
 reduce (Let (x,e1) e2) = do
+  before <- lookupHeap x
   stk <- gets stack
   insertHeap x (stk,e1)
   reduct <- eval e2
   deleteHeap x
+  insertHeap x before
   return reduct
 
 reduce (Apply f x) = do
@@ -162,22 +165,26 @@ reduce (Apply f x) = do
   case e of 
     (Lambda y e)  -> eval (subst y x e)
     Exception msg -> return (Exception msg)
-    _             -> return (Exception "Apply non-Lambda?")
+    _             -> do doLog "Attempt to apply non-Lambda!"
+                        doLog (show e)
+                        return (Exception "Apply non-Lambda?")
 
 reduce (Var x) = do
   stk       <- gets stack
   (xStk,e') <- lookupHeap x
-
-  setStack xStk
+  setStack xStk                      -- Restore stack as saved on heap
   e         <- eval e'
   xStk'     <- gets stack
-  updateHeap x (xStk',e')
-  setStack stk
-
+  updateHeap x (xStk',e')            -- Update stack (and expression) on heap
+  setStack stk                       -- Restore stack as before evaluating
   case e' of
-     (Lambda _ _) -> do doCall xStk'
+     (Lambda _ _) -> do doCall xStk' -- For functions: the current stack is the
+                                     -- call-site stack, xStk' is the "lambda"
+                                     -- stack. Here we combine the two as Marlow,
+                                     -- Solving An Old Problem.
                         fresh e'
-     _            -> do fresh e'
+     _            -> do fe <- fresh e'
+                        eval fe
 
 reduce (ACCCorrect l e) = do
   stk <- gets stack
@@ -355,7 +362,7 @@ data Dependency = PushDep | CallDep Int deriving (Eq,Show)
 instance Ord Dependency where
   compare PushDep (CallDep _)     = LT
   compare (CallDep _) PushDep     = GT
-  compare (CallDep n) (CallDep m) = compare n m
+  compare (CallDep n) (CallDep m) = compare m n
   compare PushDep PushDep         = EQ
 
 type CompGraph = Graph [Record] Dependency
@@ -389,6 +396,7 @@ nubMin l = nub' l []
 arcsFrom :: Record -> Trace -> [Arc Record Dependency]
 arcsFrom src trc =  ((map (\tgt -> Arc src tgt PushDep)) . (filter isPushArc) $ trc)
                  ++ ((map (\tgt -> Arc src tgt (CallDep 1))) . (filter isCall1Arc) $ trc)
+                 -- MF TODO: do we need level-2 arcs?
                  -- ++ ((map (\tgt -> Arc src tgt (CallDep 2))) . (filter isCall2Arc) $ trc)
                  
 
@@ -456,8 +464,8 @@ tracedEval = mkGraph . mkEquations . evalWith
 
 disp :: Expr -> IO ()
 disp expr = do 
-  -- putStr messages
-  writeFile "log" messages
+  putStrLn (show reduct)
+  writeFile "log" $ messages ++ "reduct: " ++ (show reduct)
   (display shw) 
                -- (collapse mergeCC) 
                -- . remove 
@@ -480,22 +488,21 @@ e3 = Let ("i", (Const Right))
 e4 = Let ("i", (Const Right)) 
          (Apply (ACCFaulty "lam" (Lambda "x" (Const Right))) "i")
 
+
+-- main = let i = Right
+--            id = sacc "id" \y -> y
+--        in (sacc "h" \f x -> f x) id i
+--
 e5 =  ACCCorrect "main"
-      ( Let ("i", (Const Right)) 
-            ( Let ("id",ACCFaulty "id" (Lambda "y" (Var "y")))
-                  ( Apply 
-                    ( Apply 
-                      ( ACCCorrect "h" 
-                        ( Lambda "f" 
-                          ( Lambda "x"
-                            ( Apply (Var "f") "x"
-                            )
-                          )
-                        )
-                      ) "id"
-                    ) "i"
-                  )
-            )
+      ( Let    ("i", (Const Right)) 
+      ( Let    ("id",ACCFaulty "id" (Lambda "y" (Var "y")))
+      {- in -} ( Apply 
+                 ( Apply ( ACCCorrect "h" 
+                   ( Lambda "f" (Lambda "x" (Apply (Var "f") "x"))
+                   )
+                 ) "id" ) "i"
+               )
+      )
       )
 
 -- Demonstrates that it is important to consider 'call' as well when
@@ -544,7 +551,11 @@ e10 = ACCCorrect "root" (Apply (Apply (Let ("x",Lambda "y" (ACCFaulty "CC1" (App
 -- See callDependency2.
 -- But this only "works" because the let lives behind its scope...
 
-e11 = ACCCorrect "root" (Let ("x",ACCCorrect "CC1" (Lambda "y" (ACCFaulty "CC2" (Apply (Lambda "x" (ACCCorrect "CC3" (Var "x"))) "y")))) (Apply (Apply (Lambda "x" (ACCCorrect "CC4" (Apply (Lambda "y" (Lambda "x" (Apply (Apply (Var "x") "x") "z"))) "z"))) "y") "x"))
+e11 = ACCCorrect "root" 
+        (Let   ("x",ACCCorrect "CC1" (Lambda "y" 
+                  (ACCFaulty "CC2" (Apply (Lambda "x" (ACCCorrect "CC3" (Var "x"))) "y")))
+               ) 
+        {-in-} (Apply (Apply (Lambda "x" (ACCCorrect "CC4" (Apply (Lambda "y" (Lambda "x" (Apply (Apply (Var "x") "x") "z"))) "z"))) "y") "x"))
 
 e12 = Let            ("f", ACCCorrect "f" $ Lambda "x" (Var "x"))
       $ Let          ("g", ACCCorrect "g" $ Lambda "y" (Apply (Var "f") "y"))
@@ -552,6 +563,11 @@ e12 = Let            ("f", ACCCorrect "f" $ Lambda "x" (Var "x"))
       $ {- in -}     ACCCorrect "main" (Apply (Var "g") "c")
 
       where cclet lbl b i = ACCCorrect lbl (Let b i)
+
+e13 = Let        ("f", Lambda "y" (Var "y"))
+      $ Let      ("f", Lambda "x" (Const Wrong))
+      $ Let      ("c", Const Right)
+      $ {- in -} Apply (Var "f") "c"
 
 -- e12 = cclet "let1"        ("ap1", ap)
 --         (cclet "let2"     ("ap2", ap)
