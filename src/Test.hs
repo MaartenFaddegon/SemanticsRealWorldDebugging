@@ -11,11 +11,11 @@ import Data.Graph.Libgraph
 -- faultyNodes :: Expr -> [[Label]]
 -- faultyNodes = getLabels . oldest . findFaulty' . snd . mkGraph . mkEquations . evalWith
 
-faultyNodes :: Trace -> [[Label]]
+faultyNodes :: [Equation] -> [[Label]]
 faultyNodes trc = getLabels . oldest . findFaulty' . snd . mkGraph $ (Const Right, trc)
 
-getLabels :: [[Record]] -> [[Label]]
-getLabels = map (map recordLabel)
+getLabels :: [[Equation]] -> [[Label]]
+getLabels = map (map equationLabel)
 
 --------------------------------------------------------------------------------
 -- List of faulty expressions (static analysis)
