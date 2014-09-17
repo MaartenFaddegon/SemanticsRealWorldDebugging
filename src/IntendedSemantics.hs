@@ -14,6 +14,7 @@ import Data.Algorithm.Diff
 data Expr = ACCCorrect Label Expr
           | ACCFaulty  Label Expr
           | Observed   Parent Expr
+          | FunObs     Name Name Parent Expr
           | Const      Judgement
           | Lambda     Name Expr
           | Apply      Expr Name
@@ -157,6 +158,13 @@ reduce :: Expr -> State Context Expr
 reduce (Const v) = 
   return (Const v)
 
+reduce (FunObs x x1 p e) = do
+      i  <- getUniq
+      doTrace (LamRecord i p)
+      x2 <- getFreshVar
+      eval $ Let    (x2,Observed (ArgOf i) (Var x1)) 
+             {-in-} (Apply (Lambda x (Observed (ResOf i) e)) x2)
+
 reduce (Lambda x e) = 
   return (Lambda x e)
 
@@ -173,6 +181,15 @@ reduce (Let (x,e1) e2) = do
   -- insertHeap x before
   -- return reduct
 
+
+{-   e[y/x] ⇓ w
+     ------------------- 
+     Apply (λ y e) x ⇓ w
+
+     e[y/x] ⇓ w
+     ----------------------
+     Apply (FunObs p y e) ⇓  ...?
+-}
 reduce (Apply f x) = do
   e <- eval f
   case e of 
@@ -225,6 +242,17 @@ reduce (Observed p e) = do
       uid <- getUniq
       doTrace (ConstRecord uid p v)
       return e'
+
+    {-  ?
+        ------------------------------------
+        Obs i (λ x e) ⇓ FunObserve j (λ x e)  And add (Fun i) to trace
+    -}
+    (Lambda x e) -> do
+      i <- getUniq
+      doTrace (LamRecord i p)
+      x1 <- getFreshVar
+      return (Lambda x1 (FunObs x x1 (Parent i) e))
+{-
     (Lambda x e) -> do
       uid <- getUniq
       x1 <- getFreshVar
@@ -233,23 +261,27 @@ reduce (Observed p e) = do
                  {-in-} (Apply (Lambda x (Observed (ResOf uid) e)) x1)
       doTrace (LamRecord uid p)
       return (Lambda x2 body)
+-}
     e -> 
       return (Exception $ "Observe undefined: " ++ show e)
 
 reduce (Exception msg) = return (Exception msg)
 
+-- reduce e = return (Exception $ "Can't reduce " ++ show e)
+
 --------------------------------------------------------------------------------
 -- Substituting variable names.
 
 subst :: Name -> Name -> Expr -> Expr
-subst n m (Const v)          = Const v
-subst n m (Lambda n' e)      = Lambda (sub n m n') (subst n m e)
-subst n m (Apply e n')       = Apply (subst n m e) (sub n m n')
-subst n m (Var n')           = Var (sub n m n')
-subst n m (Let (n',e1) e2)   = Let ((sub n m n'),(subst n m e1)) (subst n m e2)
-subst n m (ACCCorrect l e)   = ACCCorrect l (subst n m e)
-subst n m (ACCFaulty l e)    = ACCFaulty l (subst n m e)
-subst n m (Observed p e)     = Observed p (subst n m e)
+subst n m (Const v)           = Const v
+subst n m (Lambda n' e)       = Lambda (sub n m n') (subst n m e)
+subst n m (Apply e n')        = Apply (subst n m e) (sub n m n')
+subst n m (Var n')            = Var (sub n m n')
+subst n m (Let (n',e1) e2)    = Let ((sub n m n'),(subst n m e1)) (subst n m e2)
+subst n m (ACCCorrect l e)    = ACCCorrect l (subst n m e)
+subst n m (ACCFaulty l e)     = ACCFaulty l (subst n m e)
+subst n m (Observed p e)      = Observed p (subst n m e)
+subst n m (FunObs n' n'' p e) = FunObs (sub n m n') (sub n m n'') p (subst n m e)
 
 sub :: Name -> Name -> Name -> Name
 sub n m n' = if n == n' then m else n'
@@ -291,6 +323,11 @@ fresh (ACCFaulty l e) = do
 fresh (Observed p e) = do
   e' <- fresh e
   return (Observed p e')
+
+fresh (FunObs x x1 p e) = do
+  y <- getFreshVar
+  e' <- (fresh . subst x y) e
+  return (FunObs y x1 p e')
 
 fresh (Exception msg) = return (Exception msg)
 
@@ -647,16 +684,7 @@ e13 = Let        ("f", Lambda "y" (Var "y"))
       $ Let      ("c", Const Right)
       $ {- in -} Apply (Var "f") "c"
 
--- e12 = cclet "let1"        ("ap1", ap)
---         (cclet "let2"     ("ap2", ap)
---           (cclet "let3"   ("f", ACCCorrect "f" (Lambda "i" (Var "i")))
---             (cclet "let4" ("x", ACCFaulty "x" (Const Right))
---               (ACCCorrect "main"
---                 $ Apply (Apply (Apply (Var "ap1") "ap2") "f") "x"
---               )
---             )
---           )
---         )
--- 
---         where cclet lbl b i = ACCCorrect lbl (Let b i)
---               ap = Lambda "fun" (Lambda "arg" (Apply (Var "fun") "arg"))
+e14 = Let        ("id", ACCCorrect "id" $ Lambda "x" (Var "x"))
+      $ Let      ("y", Const Right)
+      $ Let      ("z", Apply (Var "id") "y")
+      $ {- in -} (Apply (Var "id") "z")
