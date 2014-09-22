@@ -158,13 +158,6 @@ reduce :: Expr -> State Context Expr
 reduce (Const v) = 
   return (Const v)
 
-reduce (FunObs x x1 p e) = do
-      i  <- getUniq
-      doTrace (LamRecord i p)
-      x2 <- getFreshVar
-      eval $ Let    (x2,Observed (ArgOf i) (Var x1)) 
-             {-in-} (Apply (Lambda x (Observed (ResOf i) e)) x2)
-
 reduce (Lambda x e) = 
   return (Lambda x e)
 
@@ -238,32 +231,32 @@ reduce (Observed p e) = do
   case e' of
     Exception msg ->
       return (Exception msg)
+
+    -- ObsC rule in paper
     (Const v) -> do
       uid <- getUniq
       doTrace (ConstRecord uid p v)
       return e'
 
-    {-  ?
-        ------------------------------------
-        Obs i (λ x e) ⇓ FunObserve j (λ x e)  And add (Fun i) to trace
-    -}
+    -- ObsL rule in paper
     (Lambda x e) -> do
       i <- getUniq
       doTrace (LamRecord i p)
       x1 <- getFreshVar
       return (Lambda x1 (FunObs x x1 (Parent i) e))
-{-
-    (Lambda x e) -> do
-      uid <- getUniq
-      x1 <- getFreshVar
-      x2 <- getFreshVar
-      let body = Let    (x1,Observed (ArgOf uid) (Var x2)) 
-                 {-in-} (Apply (Lambda x (Observed (ResOf uid) e)) x1)
-      doTrace (LamRecord uid p)
-      return (Lambda x2 body)
--}
+
     e -> 
       return (Exception $ "Observe undefined: " ++ show e)
+
+-- ObsF rule in paper
+reduce (FunObs x x1 p e) = do
+      i  <- getUniq
+      doTrace (LamRecord i p)
+      x2 <- getFreshVar
+      eval $ Let    (x2,Observed (ArgOf i) (Var x1)) 
+             {-in-} (Apply (Lambda x (Observed (ResOf i) e)) x2)
+
+
 
 reduce (Exception msg) = return (Exception msg)
 
@@ -566,7 +559,7 @@ tracedEval = mkGraph . mkEquations . evalWith
 disp :: Expr -> IO ()
 disp expr = do 
   putStrLn (show reduct)
-  -- writeFile "log" $ messages 
+  writeFile "log" $ messages 
   putStrLn $ messages 
         ++ "\ntrace: " ++ show trc
         ++ "\nequations: " ++ show (snd . mkEquations $ (reduct,trc))
@@ -688,3 +681,17 @@ e14 = Let        ("id", ACCCorrect "id" $ Lambda "x" (Var "x"))
       $ Let      ("y", Const Right)
       $ Let      ("z", Apply (Var "id") "y")
       $ {- in -} (Apply (Var "id") "z")
+
+e_id = Let ("y", Const Right) $ Apply (ACCCorrect "id" (Lambda "x" (Var "x"))) "y"
+
+e_isort = Let ("id",Lambda "x" (Var "x"))
+        $ Let ("insertC", ACCCorrect "insert" (Var "id"))
+        $ Let ("insertF", ACCFaulty  "insert" (Var "id"))
+        $ Let ("xs", Const Right)
+        $ ACCCorrect "isort" $ Let ("ys", Apply (Var "insertF") "xs")
+                             $ Apply (Var "insertC") "ys"
+
+e_call = Let ("id", ACCCorrect "id" (Lambda "x" (Var "x")))
+       $ Let ("j", Const Right)
+       $ ACCCorrect "root" (Apply (Var "id") "j")
+
