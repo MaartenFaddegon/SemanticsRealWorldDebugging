@@ -9,7 +9,7 @@ import Data.Graph.Libgraph
 -- Algorithmic debugging from a trace
 
 -- faultyNodes :: Expr -> [[Label]]
--- faultyNodes = getLabels . oldest . findFaulty' . snd . mkGraph . mkEquations . evalWith
+-- faultyNodes = getLabels . oldest . findFaulty' . snd . mkGraph . mkEquations . evaluate
 
 faultyNodes :: [Equation] -> [[Label]]
 faultyNodes trc = getLabels . oldest . findFaulty' . snd . mkGraph $ (Const Right, trc)
@@ -102,11 +102,8 @@ instance Arbitrary Expr where
 --------------------------------------------------------------------------------
 -- Propositions
 
-anySubset :: Eq a => [[a]] -> [a] -> Bool
-anySubset xss ys = foldr ((&&) . any (`elem` ys)) True xss
-
-subset :: Eq a => [a] -> [a] -> Bool
-subset xs ys = foldr ((&&) . (`elem` ys)) True xs
+anySubset :: Eq a => [a] -> [[a]] -> Bool
+anySubset ys = foldr ((&&) . any (`elem` ys)) True
 
 isWrong (Const Wrong) = True
 isWrong _             = False
@@ -124,18 +121,18 @@ sound e = valid ==> (classify (trc == [])     "Trivial trace")
           $         (classify (isRight r)     "Reduces to 'Const Right'")
 
           (    -- If the reduct is Wrong we marked some cost centre(s) as faulty.
-               property ((dynFCC /= []) `when` (isWrong r))
+               property (if (isWrong r) then (dynFCC /= []) else True)
                 
                -- One of the cost-centres in the faulty node is actually faulty.
-          .&&. property (dynFCC `anySubset` statFCC)
-
+          .&&. property (statFCC `anySubset` dynFCC)
           )
 
-  where e'      = ACCCorrect "root" (uniqueLabels e)
-        (r,trc) = (mkEquations . evalWith) e'
-        valid   = case r of (Const _) -> True; _ -> False
+  where (r,trc) = (mkEquations . evaluate) expr
         dynFCC  = faultyNodes trc
-        statFCC = faultyExprs e'
+        statFCC = faultyExprs expr
+
+        valid   = case r of (Const _) -> True; _ -> False
+        expr      = ACCCorrect "root" (uniqueLabels e)
 
 main = quickCheckWith args sound
   where args = Args { replay          = Nothing

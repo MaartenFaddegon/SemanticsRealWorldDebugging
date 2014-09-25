@@ -43,12 +43,12 @@ doLog msg = do
   where showd 0 = " "
         showd n = '|' : showd (n-1)
 
-evalWith' :: Expr -> (Expr,Trace,String)
-evalWith' redex = (reduct,trace cxt,foldl (++) "" . reverse . reduceLog $ cxt)
+evaluate' :: Expr -> (Expr,Trace,String)
+evaluate' redex = (reduct,trace cxt,foldl (++) "" . reverse . reduceLog $ cxt)
   where (reduct,cxt) = runState (eval redex) state0
 
-evalWith :: Expr -> (Expr,Trace)
-evalWith redex = (reduct, trace cxt)
+evaluate :: Expr -> (Expr,Trace)
+evaluate redex = (reduct, trace cxt)
   where (reduct,cxt) = runState (eval redex) state0
 
 state0 = Context [] 0 [] [] 0 1 [] (map (("fresh"++) . show) [1..])
@@ -554,7 +554,7 @@ oldest rs = (:[]) . head . (sortWith getUID) $ rs
   where getUID = head . sort . (map equationUID)
 
 tracedEval :: Expr -> (Expr,CompGraph)
-tracedEval = mkGraph . mkEquations . evalWith
+tracedEval = mkGraph . mkEquations . evaluate
 
 disp :: Expr -> IO ()
 disp expr = do 
@@ -568,7 +568,7 @@ disp expr = do
                -- (collapse mergeCC) 
                -- . remove 
                . snd . mkGraph . mkEquations $ (reduct,trc)
-  where (reduct,trc,messages) = evalWith' expr
+  where (reduct,trc,messages) = evaluate' expr
         shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
         showVertex = (foldl (++) "") . (map showEquation)
@@ -684,14 +684,13 @@ e14 = Let        ("id", ACCCorrect "id" $ Lambda "x" (Var "x"))
 
 e_id = Let ("y", Const Right) $ Apply (ACCCorrect "id" (Lambda "x" (Var "x"))) "y"
 
-e_isort = Let ("id",Lambda "x" (Var "x"))
-        $ Let ("insertC", ACCCorrect "insert" (Var "id"))
-        $ Let ("insertF", ACCFaulty  "insert" (Var "id"))
+e_isort = Let ("insertC", Lambda "x" $ ACCCorrect "insert" (Var "x"))
+        $ Let ("insertF", Lambda "x" $ ACCFaulty  "insert" (Var "x"))
         $ Let ("xs", Const Right)
-        $ ACCCorrect "isort" $ Let ("ys", Apply (Var "insertF") "xs")
-                             $ Apply (Var "insertC") "ys"
+        $ ACCCorrect "isort" $ Let ("ys", Apply (Var "insertC") "xs")
+                             $ Apply (Var "insertF") "ys"
 
-e_call = Let ("id", ACCCorrect "id" (Lambda "x" (Var "x")))
+e_call = Let ("id", Lambda "x" $ ACCCorrect "id" (Var "x"))
        $ Let ("j", Const Right)
        $ ACCCorrect "root" (Apply (Var "id") "j")
 
