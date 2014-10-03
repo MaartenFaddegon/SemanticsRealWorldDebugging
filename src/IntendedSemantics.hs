@@ -212,14 +212,14 @@ reduce (ACCCorrect l e) = do
   stk <- gets stack
   doPush l
   uid <- getUniq
-  doTrace (Enter l stk uid)
+  doTrace (Root l stk uid)
   eval (Observed (Parent uid) e)
 
 reduce (ACCFaulty l e) = do
   stk <- gets stack
   doPush l
   uid <- getUniq; uidc <- getUniq
-  doTrace (Enter l stk uid); doTrace (ConstRecord uidc (Parent uid) Wrong)
+  doTrace (Root l stk uid); doTrace (ConstEvent uidc (Parent uid) Wrong)
   r <- eval e
   case r of
     (Const jmt) -> return (Const Wrong)
@@ -235,13 +235,13 @@ reduce (Observed p e) = do
     -- ObsC rule in paper
     (Const v) -> do
       uid <- getUniq
-      doTrace (ConstRecord uid p v)
+      doTrace (ConstEvent uid p v)
       return e'
 
     -- ObsL rule in paper
     (Lambda x e) -> do
       i <- getUniq
-      doTrace (LamRecord i p)
+      doTrace (LamEvent i p)
       x1 <- getFreshVar
       return (Lambda x1 (FunObs x x1 (Parent i) e))
 
@@ -251,7 +251,7 @@ reduce (Observed p e) = do
 -- ObsF rule in paper
 reduce (FunObs x x1 p e) = do
       i  <- getUniq
-      doTrace (LamRecord i p)
+      doTrace (LamEvent i p)
       x2 <- getFreshVar
       eval $ Let    (x2,Observed (ArgOf i) (Var x1)) 
              {-in-} (Apply (Lambda x (Observed (ResOf i) e)) x2)
@@ -335,22 +335,22 @@ getFreshVar = do
 
 data Judgement  = Right | Wrong deriving (Show,Eq,Ord)
 
-type Trace = [Record]
+type Trace = [Event]
 
-data Record
-  = Enter
-    { recordLabel  :: Label
-    , recordStack  :: Stack
-    , recordUID    :: UID
+data Event
+  = Root
+    { eventLabel  :: Label
+    , eventStack  :: Stack
+    , eventUID    :: UID
     } 
-  | ConstRecord
-    { recordUID    :: UID
-    , recordParent :: Parent
-    , recordRepr   :: Judgement
+  | ConstEvent
+    { eventUID    :: UID
+    , eventParent :: Parent
+    , eventRepr   :: Judgement
     }
-  | LamRecord
-    { recordUID    :: UID
-    , recordParent :: Parent
+  | LamEvent
+    { eventUID    :: UID
+    , eventParent :: Parent
     }
   deriving (Show,Eq,Ord)
 
@@ -378,48 +378,46 @@ getUniq = do
   modify $ \cxt -> cxt { uniq = i + 1 }
   return i
 
-doTrace :: Record -> State Context ()
+doTrace :: Event -> State Context ()
 doTrace rec = do
   doLog $ "* " ++ show rec
   modify $ \cxt -> cxt{trace = rec : trace cxt}
 
--- MF TODO: in some weird cases it seems to happen that there are multiple children.
--- I now just pick the first put that may not be what we really want. This
--- may be related to our not so sophisticated scope rules (should we implement
--- freshen?).
-successors :: Trace 
-           -> (Record -> Maybe Equation -> Maybe Equation -> Equation)
-           -> Record -> Equation
-successors trc merge rec = case rec of
-        (LamRecord _ _) -> merge rec (suc ArgOf) (suc ResOf)
-        (Enter _ _ _)   -> merge rec (suc Parent) Nothing
 
-  where suc con = case filter (\chd -> recordParent chd == con (recordUID rec)) trc of
-          []                         -> Nothing
-          (ConstRecord uid p repr):_ -> Just (IntermediateEquation p uid repr)
-          chd:_                      -> Just (successors trc merge chd)
 
-recP (Enter _ _ _) = error "Oeps, enter a child?"
-recP r             = recordParent r
+recP (Root _ _ _) = error "Oeps, enter a child?"
+recP r             = eventParent r
 
 --------------------------------------------------------------------------------
 -- Trace post processing
 
 mkEquations :: (Expr,Trace) -> (Expr,[Equation])
-mkEquations (reduct,trc) = (reduct,map (successors chds merge) roots)
-  where isRoot (Enter _ _ _) = True
-        isRoot _             = False
+mkEquations (reduct,trc) = (reduct,map (successors chds) roots)
+  where isRoot (Root _ _ _) = True
+        isRoot _            = False
         (roots,chds) = partition isRoot trc
 
-jmt :: Maybe Equation -> Judgement
-jmt (Just e) = equationRepr e
-jmt Nothing  = Right
+successors :: Trace -> Event -> Equation
+successors trc rec = case rec of
+        (LamEvent _ _) -> merge rec (suc ArgOf) (suc ResOf)
+        (Root _ _ _)   -> merge rec (suc Parent) Nothing
 
-merge :: Record -> Maybe Equation -> Maybe Equation -> Equation
-merge (Enter lbl stk uid) chd _
-  = FinalEquation lbl stk uid (jmt chd)
+  where suc con = case filter (\chd -> eventParent chd == con (eventUID rec)) trc of
+          []                         -> Nothing
+          (ConstEvent uid p repr):_ -> Just (IntermediateEquation p uid repr)
+          chd:[]                     -> Just (successors trc chd)
+          _                          -> error "Too much children!"
 
-merge (LamRecord uid p) arg res
+
+merge :: Event -> Maybe Equation -> Maybe Equation -> Equation
+merge (Root lbl stk uid) chd _
+  = FinalEquation lbl stk uid' (jmt chd)
+
+  where uid' = case chd of
+                Nothing    -> uid
+                (Just equ) -> equationUID equ
+
+merge (LamEvent uid p) arg res
   = IntermediateEquation p
         (newest [uid, getUID arg, getUID res])
         ((jmt res) `argOr` (jmt arg))
@@ -434,16 +432,14 @@ merge (LamRecord uid p) arg res
       argOr _ _     = Right
       
       newest = last . sort
+      -- oldest = head . sort
 
       getUID Nothing = 0
       getUID (Just r) = equationUID r
                                 
-{-
-merge rec arg res = ConstRecord (newest [recordUID rec, getUID arg, getUID res])
-                                (recordParent rec)
-                                ((recordRepr rec) `or` (jmt res) `argOr` (jmt arg))
--}
-
+jmt :: Maybe Equation -> Judgement
+jmt (Just e) = equationRepr e
+jmt Nothing  = Right
 
 --------------------------------------------------------------------------------
 -- Debug
@@ -627,8 +623,8 @@ e6 =
 
 -- A demonstration of 'strange behaviour' because we don't properly
 -- freshen our varibles: scopes don't work as we would expect them to.
--- In this case it results in two records that claim to be the arg-value of
--- the same parent-record.
+-- In this case it results in two events that claim to be the arg-value of
+-- the same parent-event.
 e7 = Apply
       (Lambda "x"
         (Let
@@ -682,7 +678,8 @@ e14 = Let        ("id", ACCCorrect "id" $ Lambda "x" (Var "x"))
       $ Let      ("z", Apply (Var "id") "y")
       $ {- in -} (Apply (Var "id") "z")
 
-e_id = Let ("y", Const Right) $ Apply (ACCCorrect "id" (Lambda "x" (Var "x"))) "y"
+e_id = Let ("id", ACCCorrect "id" (Lambda "x" (Var "x")))
+     $ Let ("y", Const Right) $ Apply (Var "id") "y"
 
 e_isort = Let ("insertC", Lambda "x" $ ACCCorrect "insert" (Var "x"))
         $ Let ("insertF", Lambda "x" $ ACCFaulty  "insert" (Var "x"))
@@ -694,3 +691,17 @@ e_call = Let ("id", Lambda "x" $ ACCCorrect "id" (Var "x"))
        $ Let ("j", Const Right)
        $ ACCCorrect "root" (Apply (Var "id") "j")
 
+
+-- let f x y = y in f 3
+e_twoargs =  Let ("f", ACCCorrect "f" (Lambda "x" (Lambda "y" (Var "y"))))
+          $  Let ("a", Const Right) 
+          $  Let ("b", Const Right) 
+          $ Apply (Apply (Var "f") "a") "b"
+
+
+
+-- let h = \f -> f 3 in h id
+e_ho = Let ("h", ACCCorrect "h" (Lambda "f" (Let ("c", Const Right)
+                                             (Apply (Var "f") "c"))))
+     $ Let ("id", Lambda "x" (Var "x"))
+     $ Apply (Var "h") "id"

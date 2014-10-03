@@ -136,7 +136,7 @@ sound e = valid ==> (classify (trc == [])     "Trivial trace")
 
 main = quickCheckWith args sound
   where args = Args { replay          = Nothing
-                    , maxSuccess      = 800  -- number of tests
+                    , maxSuccess      = 5000  -- number of tests
                     , maxDiscardRatio = 100
                     , maxSize         = 1000   -- max subexpressions
                     , chatty          = True
