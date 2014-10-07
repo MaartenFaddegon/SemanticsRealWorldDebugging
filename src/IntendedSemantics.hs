@@ -420,13 +420,11 @@ merge (Root lbl stk uid) chd _
 merge (LamEvent uid p) arg res
   = IntermediateEquation p
         (newest [uid, getUID arg, getUID res])
-        ((jmt res) `argOr` (jmt arg))
+
+        (jmt res)
+        -- ((jmt res) `argOr` (jmt arg))
 
     where 
-      or Wrong _ = Wrong
-      or _ Wrong = Wrong
-      or _ _     = Right
-      
       argOr _ Wrong = Right
       argOr Wrong _ = Wrong
       argOr _ _     = Right
@@ -512,7 +510,8 @@ pushDependency :: Equation -> Equation -> Bool
 pushDependency p c = nextStack p == equationStack c
 
 callDependency :: Equation -> Equation -> Equation -> Bool
-callDependency pApp pLam c = call (nextStack pApp) (nextStack pLam) == equationStack c
+callDependency pApp pLam c = 
+  equationStack c == call (nextStack pApp) (nextStack pLam)
 
 
 callDependency2 :: Equation -> Equation -> Equation -> Equation -> Bool
@@ -611,15 +610,23 @@ e5' = ( Let    ("i", (Const Right))
 
 -- Demonstrates that it is important to consider 'call' as well when
 -- adding dependencies based on the cost centre stack.
+--
 e6 = 
-  ACCCorrect "root"
+  ACCCorrect "Z"
   (Let 
-    ("f",ACCCorrect "F1" (Lambda "x" (ACCFaulty "F2" (Const Right))))
+    ("f",ACCCorrect "B" (Lambda "x" (ACCFaulty "L" (Const Right))))
     (Apply 
-      (ACCCorrect "IN" (Lambda "y" (Apply (Var "y") "z")))
+      (ACCCorrect "A" (Lambda "y" (Apply (Var "y") "z")))
     "f"
     )
   )
+
+
+-- CC "Z" (let {f = CC "C" (\x . CC "L" 4), x = 5} (CC "A" f x))
+e6' = (Let 
+           ("f",ACCCorrect "L" (Lambda "x" (ACCFaulty "B" (Const Right))))
+           (ACCCorrect "A" (Apply (Var "f") "y"))
+      )
 
 -- A demonstration of 'strange behaviour' because we don't properly
 -- freshen our varibles: scopes don't work as we would expect them to.
@@ -705,3 +712,9 @@ e_ho = Let ("h", ACCCorrect "h" (Lambda "f" (Let ("c", Const Right)
                                              (Apply (Var "f") "c"))))
      $ Let ("id", Lambda "x" (Var "x"))
      $ Apply (Var "h") "id"
+
+
+-- let {y = 3} (CC "A" (\x . (CC "B" x) 3))
+e_nest = Let ("y", Const Right)
+       $ ACCCorrect "A"
+       $ Apply (Lambda "x" (ACCCorrect "B" (Var "x"))) "y"
