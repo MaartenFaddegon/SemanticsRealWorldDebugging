@@ -33,7 +33,7 @@ data Context = Context { trace          :: !Trace
                        , depth          :: !Int
                        , reductionCount :: !Int
                        , reduceLog      :: ![String]
-                       , freshVarNames  :: ![Name]
+                       , freshVarNames  :: ![Int]
                        }
 
 doLog :: String -> State Context ()
@@ -51,7 +51,7 @@ evaluate :: Expr -> (Expr,Trace)
 evaluate redex = (reduct, trace cxt)
   where (reduct,cxt) = runState (eval redex) state0
 
-state0 = Context [] 0 [] [] 0 1 [] (map (("fresh"++) . show) [1..])
+state0 = Context [] 0 [] [] 0 1 [] [1..]
 
 eval :: (Expr -> State Context Expr)
 eval expr = do 
@@ -64,16 +64,8 @@ eval expr = do
         modify $ \cxt -> cxt{depth=d+1}
         doLog (show n ++ ": " ++ show expr)
         reduct <- reduce expr
-        -- doLog (show n ++ ": " ++ show reduct)
-        -- doLog (show n ++ "  " ++ diffshow expr reduct)
         modify $ \cxt -> cxt{depth=d}
         return reduct
-
-  where diffshow :: Expr -> Expr -> String
-        diffshow expr reduct = let shw (First _)  = '-'
-                                   shw (Second _) = '+'
-                                   shw (Both _ _) = ' '
-                               in map shw $ getDiff (show expr) (show reduct)
 
 --------------------------------------------------------------------------------
 -- Manipulating the heap.
@@ -162,27 +154,10 @@ reduce (Lambda x e) =
   return (Lambda x e)
 
 reduce (Let (x,e1) e2) = do
-  -- before <- lookupHeap x
-
   stk <- gets stack
   insertHeap x (stk,e1)
   eval e2
 
-  -- reduct <- eval e2
-  -- doLog $ "Delete " ++ x ++ " from heap."
-  -- deleteHeap x
-  -- insertHeap x before
-  -- return reduct
-
-
-{-   e[y/x] ⇓ w
-     ------------------- 
-     Apply (λ y e) x ⇓ w
-
-     e[y/x] ⇓ w
-     ----------------------
-     Apply (FunObs p y e) ⇓  ...?
--}
 reduce (Apply f x) = do
   e <- eval f
   case e of 
@@ -242,7 +217,7 @@ reduce (Observed p e) = do
     (Lambda x e) -> do
       i <- getUniq
       doTrace (LamEvent i p)
-      x1 <- getFreshVar
+      x1 <- getFreshVar x
       return (Lambda x1 (FunObs x x1 (Parent i) e))
 
     e -> 
@@ -251,10 +226,10 @@ reduce (Observed p e) = do
 -- ObsF rule in paper
 reduce (FunObs x x1 p e) = do
       i  <- getUniq
-      doTrace (LamEvent i p)
-      x2 <- getFreshVar
+      doTrace (AppEvent i p)
+      x2 <- getFreshVar x
       eval $ Let    (x2,Observed (ArgOf i) (Var x1)) 
-             {-in-} (Apply (Lambda x (Observed (ResOf i) e)) x2)
+             {-in-} (Observed (ResOf i) (Apply (Lambda x e) x2))
 
 
 
@@ -288,12 +263,12 @@ fresh (Const v) = do
   return (Const v)
 
 fresh (Lambda x e) = do 
-  y <- getFreshVar
+  y <- getFreshVar x
   e' <- (fresh . subst x y) e
   return (Lambda y e')
 
 fresh (Let (x,e1) e2) = do 
-  y <- getFreshVar
+  y <- getFreshVar x
   e1' <- (fresh . subst x y) e1
   e2' <- (fresh . subst x y) e2
   return $ Let (y,e1') e2'
@@ -318,22 +293,26 @@ fresh (Observed p e) = do
   return (Observed p e')
 
 fresh (FunObs x x1 p e) = do
-  y <- getFreshVar
+  y <- getFreshVar x
   e' <- (fresh . subst x y) e
   return (FunObs y x1 p e')
 
 fresh (Exception msg) = return (Exception msg)
 
-getFreshVar :: State Context Name
-getFreshVar = do
+getFreshVar :: Name -> State Context Name
+getFreshVar n = do
   (x:xs) <- gets freshVarNames
   modify $ \cxt -> cxt {freshVarNames=xs}
-  return x
+  return (n ++ show x)
 
 --------------------------------------------------------------------------------
 -- Tracing
 
-data Judgement  = Right | Wrong deriving (Show,Eq,Ord)
+data Judgement  = Right | Wrong deriving (Eq,Ord)
+
+instance Show Judgement where
+  show Right = "☺"
+  show Wrong = "☹"
 
 type Trace = [Event]
 
@@ -352,19 +331,23 @@ data Event
     { eventUID    :: UID
     , eventParent :: Parent
     }
+  | AppEvent
+    { eventUID    :: UID
+    , eventParent :: Parent
+    }    
   deriving (Show,Eq,Ord)
 
-data Equation
- = FinalEquation
-    { equationLabel  :: Label
-    , equationStack  :: Stack
-    , equationUID    :: UID
-    , equationRepr   :: Judgement
+data CompStmt
+ = CompStmt
+    { stmtLabel  :: Label
+    , stmtStack  :: Stack
+    , stmtUID    :: UID
+    , stmtRepr   :: Judgement
     }
- | IntermediateEquation
-    { equationParent :: Parent
-    , equationUID    :: UID
-    , equationRepr   :: Judgement
+ | IntermediateStmt
+    { stmtParent :: Parent
+    , stmtUID    :: UID
+    , stmtRepr   :: Judgement
     }
   deriving (Show,Eq,Ord)
 
@@ -383,61 +366,55 @@ doTrace rec = do
   doLog $ "* " ++ show rec
   modify $ \cxt -> cxt{trace = rec : trace cxt}
 
-
-
-recP (Root _ _ _) = error "Oeps, enter a child?"
-recP r             = eventParent r
-
 --------------------------------------------------------------------------------
 -- Trace post processing
 
-mkEquations :: (Expr,Trace) -> (Expr,[Equation])
-mkEquations (reduct,trc) = (reduct,map (successors chds) roots)
+mkStmts :: (Expr,Trace) -> (Expr,[CompStmt])
+mkStmts (reduct,trc) = (reduct,map (successors True chds) roots)
   where isRoot (Root _ _ _) = True
         isRoot _            = False
         (roots,chds) = partition isRoot trc
 
-successors :: Trace -> Event -> Equation
-successors trc rec = case rec of
-        (LamEvent _ _) -> merge rec (suc ArgOf) (suc ResOf)
-        (Root _ _ _)   -> merge rec (suc Parent) Nothing
+successors :: Bool -> Trace -> Event -> CompStmt
+successors root trc rec = case rec of
+        (AppEvent _ _) -> merge root rec $ (suc ArgOf) ++ (suc ResOf)
+        (LamEvent _ _) -> merge root rec (suc Parent)
+        (Root _ _ _)   -> merge root rec (suc Parent)
 
-  where suc con = case filter (\chd -> eventParent chd == con (eventUID rec)) trc of
-          []                         -> Nothing
-          (ConstEvent uid p repr):_ -> Just (IntermediateEquation p uid repr)
-          chd:[]                     -> Just (successors trc chd)
-          _                          -> error "Too much children!"
+  where suc con = map mkStmt $ filter (\chd -> eventParent chd == con (eventUID rec)) trc
+        mkStmt (ConstEvent uid p repr) = IntermediateStmt p uid repr
+	mkStmt chd                     = (successors root' trc chd)
+	root' = case rec of (AppEvent _ _) -> False; _ -> root
 
+oldestUID :: [UID] -> UID
+oldestUID = head . sort
 
-merge :: Event -> Maybe Equation -> Maybe Equation -> Equation
-merge (Root lbl stk uid) chd _
-  = FinalEquation lbl stk uid' (jmt chd)
+merge :: Bool -> Event -> [CompStmt] -> CompStmt
 
-  where uid' = case chd of
-                Nothing    -> uid
-                (Just equ) -> equationUID equ
+merge _ (Root lbl stk i) []    = CompStmt lbl stk i Right
+merge _ (Root lbl stk _) [chd] = CompStmt lbl stk i r
+  where r = stmtRepr chd
+        i = stmtUID  chd
+merge _ (Root lbl stk i) _     = error "merge: Root with multiple children?"
 
-merge (LamEvent uid p) arg res
-  = IntermediateEquation p
-        (newest [uid, getUID arg, getUID res])
+merge _ (LamEvent i p) []   = IntermediateStmt p i Right
+merge _ (LamEvent _ p) apps = IntermediateStmt p i r
+  where r = foldl and Right (map stmtRepr apps)
+        i = head . sort . (map stmtUID) $ apps
+        and Right Right = Right
+        and _     _     = Wrong
 
-        (jmt res)
-        -- ((jmt res) `argOr` (jmt arg))
-
-    where 
-      argOr _ Wrong = Right
-      argOr Wrong _ = Wrong
-      argOr _ _     = Right
-      
-      newest = last . sort
-      -- oldest = head . sort
-
-      getUID Nothing = 0
-      getUID (Just r) = equationUID r
-                                
-jmt :: Maybe Equation -> Judgement
-jmt (Just e) = equationRepr e
-jmt Nothing  = Right
+merge _ (AppEvent _ p) chds = case (length chds) of
+  0 -> error "merge: Application with neither result nor argument?"
+  1 -> let res = head chds
+           r   = stmtRepr res
+           i   = stmtUID  res
+       in IntermediateStmt p i r
+  2 -> let [res,arg] = chds
+           r   = stmtRepr res
+           i   = stmtUID res
+       in IntermediateStmt p i r
+  _ -> error "merge: Application with multiple arguments?"
 
 --------------------------------------------------------------------------------
 -- Debug
@@ -450,12 +427,12 @@ instance Ord Dependency where
   compare (CallDep n) (CallDep m) = compare n m
   compare PushDep PushDep         = EQ
 
-type CompGraph = Graph [Equation] Dependency
+type CompGraph = Graph [CompStmt] Dependency
 
-mkGraph :: (Expr,[Equation]) -> (Expr,CompGraph)
+mkGraph :: (Expr,[CompStmt]) -> (Expr,CompGraph)
 mkGraph (reduct,trc) = (reduct,mapGraph (\r->[r]) (mkGraph' trc))
 
-mkGraph' :: [Equation] -> Graph Equation Dependency
+mkGraph' :: [CompStmt] -> Graph CompStmt Dependency
 mkGraph' trace
   | length trace < 1 = error "mkGraph: empty trace"
   | length roots < 1 = error "mkGraph: no root"
@@ -463,8 +440,8 @@ mkGraph' trace
                        trace
                        (nubMin $ foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
   where roots = filter isRoot trace
-        isRoot FinalEquation{equationStack=s} = s == []
-        isRoot _                              = error "mkGraph': Leftover intermediate equation?"
+        isRoot CompStmt{stmtStack=s} = s == []
+        isRoot _                              = error "mkGraph': Leftover intermediate stmt?"
 
 nubMin :: (Eq a, Ord b) => [Arc a b] -> [Arc a b]
 nubMin l = nub' l []
@@ -480,7 +457,7 @@ nubMin l = nub' l []
 
     equiv (Arc v w _) (Arc x y _) = v == x && w == y
 
-arcsFrom :: Equation -> [Equation] -> [Arc Equation Dependency]
+arcsFrom :: CompStmt -> [CompStmt] -> [Arc CompStmt Dependency]
 arcsFrom src trc =  ((map (\tgt -> Arc src tgt PushDep)) . (filter isPushArc) $ trc)
                  ++ ((map (\tgt -> Arc src tgt (CallDep 1))) . (filter isCall1Arc) $ trc)
                  -- MF TODO: do we need level-2 arcs?
@@ -489,9 +466,7 @@ arcsFrom src trc =  ((map (\tgt -> Arc src tgt PushDep)) . (filter isPushArc) $ 
 
   where isPushArc = pushDependency src
         
-        isCall1Arc = -- function-as-parent
-                    anyOf $ map (flip callDependency src) trc
-                    -- application-as-parent
+        isCall1Arc = anyOf $ map (flip callDependency src) trc
                     -- anyOf $ map (callDependency src) trc
 
         isCall2Arc = anyOf $  apmap (map (callDependency2 src) trc) trc
@@ -503,35 +478,33 @@ arcsFrom src trc =  ((map (\tgt -> Arc src tgt PushDep)) . (filter isPushArc) $ 
         apmap :: [a->b] -> [a] -> [b]
         apmap fs xs = foldl (\acc f -> acc ++ (map f xs)) [] fs
 
-nextStack :: Equation -> Stack
-nextStack rec = push (equationLabel rec) (equationStack rec)
+nextStack :: CompStmt -> Stack
+nextStack rec = push (stmtLabel rec) (stmtStack rec)
 
-pushDependency :: Equation -> Equation -> Bool
-pushDependency p c = nextStack p == equationStack c
+pushDependency :: CompStmt -> CompStmt -> Bool
+pushDependency p c = nextStack p == stmtStack c
 
-callDependency :: Equation -> Equation -> Equation -> Bool
+callDependency :: CompStmt -> CompStmt -> CompStmt -> Bool
 callDependency pApp pLam c = 
-  equationStack c == call (nextStack pApp) (nextStack pLam)
+  stmtStack c == call (nextStack pApp) (nextStack pLam)
 
-
-callDependency2 :: Equation -> Equation -> Equation -> Equation -> Bool
-callDependency2 pApp pApp' pLam' c = call (nextStack pApp) pLam == equationStack c
+callDependency2 :: CompStmt -> CompStmt -> CompStmt -> CompStmt -> Bool
+callDependency2 pApp pApp' pLam' c = call (nextStack pApp) pLam == stmtStack c
   where pLam = call (nextStack pApp') (nextStack pLam')
 
-callDependency2' :: Equation -> Equation -> Equation -> Equation -> Bool
-callDependency2' pApp1 pApp2 pLam c = call pApp (nextStack pLam) == equationStack c
+callDependency2' :: CompStmt -> CompStmt -> CompStmt -> CompStmt -> Bool
+callDependency2' pApp1 pApp2 pLam c = call pApp (nextStack pLam) == stmtStack c
   where pApp = call (nextStack pApp1) (nextStack pApp2)
-
 
 --------------------------------------------------------------------------------
 -- Examples.
 
-findFaulty' :: CompGraph -> [[Equation]]
+findFaulty' :: CompGraph -> [[CompStmt]]
 findFaulty' = findFaulty wrongCC mergeCC
 
 mergeCC ws = foldl (++) [] ws
 
-wrongCC = foldl (\w r -> case equationRepr r of Wrong -> True; _ -> w) False
+wrongCC = foldl (\w r -> case stmtRepr r of Wrong -> True; _ -> w) False
 
 debug :: Expr -> IO ()
 debug redex = do
@@ -543,32 +516,26 @@ debug' redex = do
   let (reduct,compgraph) = tracedEval redex
   print (findFaulty' compgraph)
 
-oldest :: [[Equation]] -> [[Equation]]
+oldest :: [[CompStmt]] -> [[CompStmt]]
 oldest [] = []
 oldest rs = (:[]) . head . (sortWith getUID) $ rs
-  where getUID = head . sort . (map equationUID)
+  where getUID = head . sort . (map stmtUID)
 
 tracedEval :: Expr -> (Expr,CompGraph)
-tracedEval = mkGraph . mkEquations . evaluate
+tracedEval = mkGraph . mkStmts . evaluate
 
 disp :: Expr -> IO ()
 disp expr = do 
-  putStrLn (show reduct)
-  writeFile "log" $ messages 
-  putStrLn $ messages 
-        ++ "\ntrace: " ++ show trc
-        ++ "\nequations: " ++ show (snd . mkEquations $ (reduct,trc))
-        ++ "\nreduct: " ++ (show reduct)
-  (display shw) 
-               -- (collapse mergeCC) 
-               -- . remove 
-               . snd . mkGraph . mkEquations $ (reduct,trc)
+  putStrLn (messages ++ strc)
+  writeFile "log" (messages ++ strc)
+  (display shw) . snd . mkGraph . mkStmts $ (reduct,trc)
   where (reduct,trc,messages) = evaluate' expr
+        strc = foldl (\acc s -> acc ++ "\n" ++ s) "" (map show $ reverse trc)
         shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
-        showVertex = (foldl (++) "") . (map showEquation)
-        showEquation rec = equationLabel rec ++ " = " ++ show (equationRepr rec) 
-                         ++ " (with stack " ++ show (equationStack rec) ++ ")\n"
+        showVertex = (foldl (++) "") . (map showCompStmt)
+        showCompStmt rec = stmtLabel rec ++ " = " ++ show (stmtRepr rec) 
+                         ++ " (with stack " ++ show (stmtStack rec) ++ ")\n"
         showArc (Arc _ _ dep)  = show dep
 
 e1 = ACCFaulty "A" (Const Right)

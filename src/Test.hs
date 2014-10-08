@@ -9,13 +9,13 @@ import Data.Graph.Libgraph
 -- Algorithmic debugging from a trace
 
 -- faultyNodes :: Expr -> [[Label]]
--- faultyNodes = getLabels . oldest . findFaulty' . snd . mkGraph . mkEquations . evaluate
+-- faultyNodes = getLabels . oldest . findFaulty' . snd . mkGraph . mkCompStmts . evaluate
 
-faultyNodes :: [Equation] -> [[Label]]
+faultyNodes :: [CompStmt] -> [[Label]]
 faultyNodes trc = getLabels . oldest . findFaulty' . snd . mkGraph $ (Const Right, trc)
 
-getLabels :: [[Equation]] -> [[Label]]
-getLabels = map (map equationLabel)
+getLabels :: [[CompStmt]] -> [[Label]]
+getLabels = map (map stmtLabel)
 
 --------------------------------------------------------------------------------
 -- List of faulty expressions (static analysis)
@@ -127,7 +127,7 @@ sound e = valid ==> (classify (trc == [])     "Trivial trace")
           .&&. property (statFCC `anySubset` dynFCC)
           )
 
-  where (r,trc) = (mkEquations . evaluate) expr
+  where (r,trc) = (mkStmts . evaluate) expr
         dynFCC  = faultyNodes trc
         statFCC = faultyExprs expr
 
