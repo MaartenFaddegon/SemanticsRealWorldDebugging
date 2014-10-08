@@ -11,9 +11,81 @@ import Data.Monoid
 ------------------------------------------------------------------------------------------
 
 main = defaultMainWithOpts
-       [ testCase "e1 with 'g' faulty" test1a
-       , testCase "e1 with 'h' faulty" test1b
+       [ testCase "e1 fault in 'g'"    test1a
+       , testCase "e1 fault in 'h'"    test1b
+       , testCase "e2 fault in 'f'"    test2a
+       , testCase "e2 fault in 'g'"    test2b
+       , testCase "e2 fault in 'main'" test2c
        ] (mempty { ropt_color_mode = Just ColorNever })
+
+------------------------------------------------------------------------------------------
+--
+-- Eyample 1: CC "main" (let h f' = (CC "h" \f y . f y) f'
+--                           g x = (CC "g" \y . y) x
+--                           i = 8
+--                       in h g i
+--                      )
+--
+-- Demonstrating interaction between a higher-order (here h, could be map or foldl)
+-- and a first-order function (here f, could be +1 or ++).
+--
+--      Case a: fault in "g"
+--      Case b: fault in "h"
+
+e1t = T.ACC "main"
+      ( T.Let ("h", T.Lambda "f'" (T.Apply 
+                (T.ACC "h" $ T.Lambda "f" (T.Lambda "x"(T.Apply (T.Var "f") "x"))) "f'"))
+      $ T.Let ("g", (T.Lambda "x" (T.Apply (T.ACC "g" (T.Lambda "y" (T.Var "y"))) "x")))
+      $ T.Let ("i", (T.Const 8)) 
+      $ T.Apply (T.Apply (T.Var "h") "g") "i"
+      )
+
+test1a = equivalent e1t ["g"] 
+                [ "main = 8" ? Wrong
+                , "h (\\8 -> 8) = (\\8 -> 8)" ? Right
+                , "g 8 = 8" ? Wrong
+                ]
+
+test1b = equivalent e1t ["h"] 
+                [ "main = 8" ? Wrong
+                , "h (\\8 -> 8) = (\\8 -> 8)" ? Wrong
+                , "g 8 = 8" ? Right
+                ]
+
+------------------------------------------------------------------------------------------
+--
+-- Example 2: let f x = (CC "f" \y -> y) x
+--                g x = (CC "g" \y -> g y) x
+--                i = 3
+--            in  CC "main" (g 3)
+--
+-- Demonstrate a simple chain of dependencies.
+--
+--      Case a: fault in "f"
+--      Case b: fault in "g"
+--      Case c: fault in "main"
+
+e2t = T.Let ("f", T.Lambda "x" (T.Apply (T.ACC "f" (T.Lambda "y" (T.Var "y"))) "x"))
+    $ T.Let ("g", T.Lambda "x" (T.Apply (T.ACC "g" (T.Lambda "y" (T.Apply (T.Var "f") "y"))) "x"))
+    $ T.Let ("i", T.Const 3)
+    $ T.ACC "main" (T.Apply (T.Var "g") "i")
+
+test2a = equivalent e2t ["f"] 
+                [ "main = 3" ? Wrong
+                , "g 3 = 3" ? Wrong
+                , "f 3 = 3" ? Wrong
+                ]
+
+test2b = equivalent e2t ["g"] 
+                [ "main = 3" ? Wrong
+                , "g 3 = 3" ? Wrong
+                , "f 3 = 3" ? Right
+                ]
+test2c = equivalent e2t ["main"] 
+                [ "main = 3" ? Wrong
+                , "g 3 = 3" ? Right
+                , "f 3 = 3" ? Right
+                ]
 
 ------------------------------------------------------------------------------------------
 
@@ -53,32 +125,3 @@ equivalent e fs js = debugI fs e @?= debugT js e
 
 (?) = (,)
 
-------------------------------------------------------------------------------------------
---
--- Example 1: CC "main" (let h = CC "h" \f x . f x
---                           g = CC "g" \x . x
---                           i = 8
---                       in h g i
---                      )
---
---      Case a: bug in "g"
---      Case b: bug in "h"
-
-e1t = T.ACC "main"
-      ( T.Let ("h", T.ACC "h" $ T.Lambda "f" (T.Lambda "x"(T.Apply (T.Var "f") "x")))
-      $ T.Let ("g", T.ACC "g" (T.Lambda "y" (T.Var "y")))
-      $ T.Let ("i", (T.Const 8)) 
-      $ T.Apply (T.Apply (T.Var "h") "g") "i"
-      )
-
-test1a = equivalent e1t ["g"] 
-                [ "main = 8" ? Wrong
-                , "h (\\8 -> 8) = (\\8 -> 8)" ? Right
-                , "g 8 = 8" ? Wrong
-                ]
-
-test1b = equivalent e1t ["h"] 
-                [ "main = 8" ? Wrong
-                , "h (\\8 -> 8) = (\\8 -> 8)" ? Wrong
-                , "g 8 = 8" ? Wrong
-                ]
