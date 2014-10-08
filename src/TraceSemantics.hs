@@ -360,7 +360,9 @@ successors root trc rec = case rec of
         (Root l s _)   -> merge root rec (suc Parent)
 
   where suc con = map mkStmt $ filter (\chd -> eventParent chd == con (eventUID rec)) trc
-        mkStmt (ConstEvent uid p repr) = IntermediateStmt p uid repr
+        mkStmt (ConstEvent uid p repr) = case rec of
+          (Root _ _ _) -> IntermediateStmt p uid ("= " ++ repr)
+          _            -> IntermediateStmt p uid repr
 	mkStmt chd                     = (successors root' trc chd)
 	root' = case rec of (AppEvent _ _) -> False; _ -> root
 
@@ -370,7 +372,7 @@ oldestUID = head . sort
 merge :: Bool -> Event -> [CompStmt] -> CompStmt
 
 merge _ (Root lbl stk i) []    = CompStmt lbl stk i "_"
-merge _ (Root lbl stk _) [chd] = CompStmt lbl stk i r
+merge _ (Root lbl stk _) [chd] = CompStmt lbl stk i (lbl ++ " " ++ r)
   where r = stmtRepr chd
         i = stmtUID  chd
 merge _ (Root lbl stk i) _     = error "merge: Root with multiple children?"
@@ -495,7 +497,7 @@ disp expr = do
         shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
         showVertex = (foldl (++) "") . (map showStmt)
-        showStmt (CompStmt l s i r) = l ++ (' ' : r)
+        showStmt (CompStmt l s i r) = r
         showArc _  = ""
 
 e1 = ACC "A" (Const 42)

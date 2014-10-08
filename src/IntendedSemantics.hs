@@ -6,7 +6,6 @@ import Data.Graph.Libgraph
 import Data.List (sort)
 import GHC.Exts (sortWith)
 import Data.List (partition)
-import Data.Algorithm.Diff
 
 --------------------------------------------------------------------------------
 -- Expressions
