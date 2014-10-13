@@ -102,8 +102,8 @@ instance Arbitrary Expr where
 --------------------------------------------------------------------------------
 -- Propositions
 
-anySubset :: Eq a => [a] -> [[a]] -> Bool
-anySubset ys = foldr ((&&) . any (`elem` ys)) True
+anyElem :: Eq a => [a] -> [[a]] -> Bool
+anyElem ys = foldr ((&&) . any (`elem` ys)) True
 
 isWrong (Const Wrong) = True
 isWrong _             = False
@@ -124,7 +124,7 @@ sound e = valid ==> (classify (trc == [])     "Trivial trace")
                property (if (isWrong r) then (dynFCC /= []) else True)
                 
                -- One of the cost-centres in the faulty node is actually faulty.
-          .&&. property (statFCC `anySubset` dynFCC)
+          .&&. property (statFCC `anyElem` dynFCC)
           )
 
   where (r,trc) = (mkEquations . evaluate) expr
