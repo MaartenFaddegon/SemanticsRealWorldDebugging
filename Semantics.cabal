@@ -16,7 +16,7 @@ Executable Semantics-test
 
 Executable Equivalence-test
   build-Depends:     base >= 4 && < 5, monads-tf, QuickCheck, libgraph == 1.2,
-                     test-framework, test-framework-hunit, HUnit == 1.5.2, containers
+                     test-framework, test-framework-hunit, HUnit, containers
   hs-source-dirs:    src
   main-is:           Equivalence.hs
   other-modules:     IntendedSemantics, TraceSemantics

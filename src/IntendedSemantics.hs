@@ -410,7 +410,7 @@ merge _ (AppEvent _ p) chds = case (length chds) of
            i   = stmtUID  res
        in IntermediateStmt p i r
   2 -> let [res,arg] = chds
-           r   = stmtRepr res
+           r   = case stmtRepr arg of Right -> stmtRepr res; Wrong -> Right
            i   = stmtUID res
        in IntermediateStmt p i r
   _ -> error "merge: Application with multiple arguments?"
