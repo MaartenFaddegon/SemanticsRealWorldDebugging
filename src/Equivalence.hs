@@ -68,7 +68,7 @@ debugI :: [Label] -> T.Expr -> [[Label]]
 debugI fs = debug . evalI . (translateTI fs)
   where evalI = snd . I.mkStmts . I.evaluate
 
--- Next we assert that debugging a TraceSemantic expression gives the same
+-- Finally, we assert that debugging a TraceSemantic expression gives the same
 -- result as debugging the IntededSemantic expression to which it translates.
 
 equivalent :: T.Expr                    -- The expression (without intention encoded).
@@ -92,13 +92,12 @@ equivalent e fs js = debugI fs e @?= debugT js e
 --      Case a: fault in "g"
 --      Case b: fault in "h"
 
-e1t = T.ACC "main"
-      ( T.Let ("h", T.Lambda "f'" (T.Apply 
-                (T.ACC "h" $ T.Lambda "f" (T.Lambda "x"(T.Apply (T.Var "f") "x"))) "f'"))
-      $ T.Let ("g", (T.Lambda "x" (T.Apply (T.ACC "g" (T.Lambda "y" (T.Var "y"))) "x")))
-      $ T.Let ("i", (T.Const 8)) 
-      $ T.Apply (T.Apply (T.Var "h") "g") "i"
-      )
+e1t = T.Let ("h", T.Lambda "f'" (T.Apply 
+              (T.ACC "h" $ T.Lambda "f" (T.Lambda "x"(T.Apply (T.Var "f") "x"))) "f'"))
+    $ T.Let ("g", (T.Lambda "x" (T.Apply (T.ACC "g" (T.Lambda "y" (T.Var "y"))) "x")))
+    $ T.Let ("i", (T.Const 8)) 
+    $ T.ACC "main" 
+    $ T.Apply (T.Apply (T.Var "h") "g") "i"
 
 test1a = equivalent e1t ["g"] 
                 [ "main = 8" ? Wrong
