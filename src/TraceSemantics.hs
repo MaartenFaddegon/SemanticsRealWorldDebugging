@@ -17,6 +17,7 @@ data Expr = ACC        Label Expr
           | Apply      Expr Name
           | Var        Name
           | Let        (Name,Expr) Expr
+          | Plus       Expr Expr
           | Exception  String
           deriving (Show,Eq)
 
@@ -219,6 +220,13 @@ reduce (FunObs x x1 p e) = do
              {-in-} (Observed (ResOf i) (Apply (Lambda x e) x2))
 
 
+reduce (Plus e1 e2) = do
+  e1' <- eval e1
+  e2' <- eval e2
+  case (e1',e2') of
+        (Const v1, Const v2) -> return $ Const (v1 + v2)
+        (l,r)                -> return (Exception $ "Attempt to sum non-constant values: "
+                                                  ++ show l ++ " + " ++ show r)
 
 reduce (Exception msg) = return (Exception msg)
 
@@ -236,6 +244,7 @@ subst n m (Let (n',e1) e2)    = Let ((sub n m n'),(subst n m e1)) (subst n m e2)
 subst n m (ACC l e)           = ACC l (subst n m e)
 subst n m (Observed p e)      = Observed p (subst n m e)
 subst n m (FunObs n' n'' p e) = FunObs (sub n m n') (sub n m n'') p (subst n m e)
+subst n m (Plus e1 e2)        = Plus (subst n m e1) (subst n m e2)
 
 sub :: Name -> Name -> Name -> Name
 sub n m n' = if n == n' then m else n'
@@ -282,6 +291,11 @@ fresh (FunObs x x1 p e) = do
 
 fresh (Exception msg) = return (Exception msg)
 
+fresh (Plus e1 e2) = do
+  e1' <- fresh e1
+  e2' <- fresh e2
+  return (Plus e1' e2')
+
 getFreshVar :: Name -> State Context Name
 getFreshVar n = do
   (x:xs) <- gets freshVarNames
@@ -312,7 +326,6 @@ data Event
     { eventUID    :: UID
     , eventParent :: Parent
     }    
-
   deriving (Show,Eq,Ord)
 
 data CompStmt
@@ -391,7 +404,7 @@ merge t (AppEvent _ p) chds = case (length chds) of
            r   = mkStmt "_" (stmtRepr res)
            i   = stmtUID  res
        in IntermediateStmt p i r
-  2 -> let [res,arg] = chds
+  2 -> let [arg,res] = chds
            r   = mkStmt (stmtRepr arg) (stmtRepr res)
            i   = stmtUID res
        in IntermediateStmt p i r

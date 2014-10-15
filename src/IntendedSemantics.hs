@@ -12,13 +12,14 @@ import Data.List (partition)
 
 data Expr = ACCCorrect Label Expr
           | ACCFaulty  Label Expr
-          | Observed   Parent Expr
-          | FunObs     Name Name Parent Expr
+          | Observed   Parent Judgement Expr
+          | FunObs     Name Name Parent Judgement Expr
           | Const      Judgement
           | Lambda     Name Expr
           | Apply      Expr Name
           | Var        Name
           | Let        (Name,Expr) Expr
+          | Plus       Expr Expr
           | Exception  String
           deriving (Show,Eq)
 
@@ -187,19 +188,26 @@ reduce (ACCCorrect l e) = do
   doPush l
   uid <- getUniq
   doTrace (Root l stk uid)
-  eval (Observed (Parent uid) e)
+  eval (Observed (Parent uid) Right e)
 
 reduce (ACCFaulty l e) = do
   stk <- gets stack
   doPush l
-  uid <- getUniq; uidc <- getUniq
-  doTrace (Root l stk uid); doTrace (ConstEvent uidc (Parent uid) Wrong)
-  r <- eval e
-  case r of
-    (Const jmt) -> return (Const Wrong)
-    _           -> return r
+  uid <- getUniq
+  doTrace (Root l stk uid)
+  eval (Observed (Parent uid) Wrong e)
 
-reduce (Observed p e) = do
+-- reduce (ACCFaulty l e) = do
+--   stk <- gets stack
+--   doPush l
+--   uid <- getUniq; uidc <- getUniq
+--   doTrace (Root l stk uid); doTrace (ConstEvent uidc (Parent uid) Wrong)
+--   r <- eval e
+--   case r of
+--     (Const jmt) -> return (Const Wrong)
+--     _           -> return r -- TODO lift lambda and return Wrong?
+
+reduce (Observed p j e) = do
   stk <- gets stack
   e' <- eval e
   case e' of
@@ -209,28 +217,38 @@ reduce (Observed p e) = do
     -- ObsC rule in paper
     (Const v) -> do
       uid <- getUniq
-      doTrace (ConstEvent uid p v)
-      return e'
+      let v' = v `jand` j
+      doTrace (ConstEvent uid p v')
+      return (Const v')
 
     -- ObsL rule in paper
     (Lambda x e) -> do
       i <- getUniq
       doTrace (LamEvent i p)
       x1 <- getFreshVar x
-      return (Lambda x1 (FunObs x x1 (Parent i) e))
+      return (Lambda x1 (FunObs x x1 (Parent i) j e))
 
     e -> 
       return (Exception $ "Observe undefined: " ++ show e)
 
 -- ObsF rule in paper
-reduce (FunObs x x1 p e) = do
+reduce (FunObs x x1 p j e) = do
       i  <- getUniq
       doTrace (AppEvent i p)
       x2 <- getFreshVar x
-      eval $ Let    (x2,Observed (ArgOf i) (Var x1)) 
-             {-in-} (Observed (ResOf i) (Apply (Lambda x e) x2))
+      eval $ Let    (x2,Observed (ArgOf i) Right (Var x1)) 
+             {-in-} (Observed (ResOf i) j (Apply (Lambda x e) x2))
 
 
+reduce (Plus e1 e2) = do
+  e1' <- eval e1
+  e2' <- eval e2
+  case (e1',e2') of
+        (Const v1, Const v2) -> return $ Const (v1 + v2)
+        (l,r)                -> return (Exception $ "Attempt to sum non-constant values: "
+                                                  ++ show l ++ " + " ++ show r)
+  where (+) Right Right = Right
+        (+) _     _     = Wrong
 
 reduce (Exception msg) = return (Exception msg)
 
@@ -240,15 +258,16 @@ reduce (Exception msg) = return (Exception msg)
 -- Substituting variable names.
 
 subst :: Name -> Name -> Expr -> Expr
-subst n m (Const v)           = Const v
-subst n m (Lambda n' e)       = Lambda (sub n m n') (subst n m e)
-subst n m (Apply e n')        = Apply (subst n m e) (sub n m n')
-subst n m (Var n')            = Var (sub n m n')
-subst n m (Let (n',e1) e2)    = Let ((sub n m n'),(subst n m e1)) (subst n m e2)
-subst n m (ACCCorrect l e)    = ACCCorrect l (subst n m e)
-subst n m (ACCFaulty l e)     = ACCFaulty l (subst n m e)
-subst n m (Observed p e)      = Observed p (subst n m e)
-subst n m (FunObs n' n'' p e) = FunObs (sub n m n') (sub n m n'') p (subst n m e)
+subst n m (Const v)             = Const v
+subst n m (Lambda n' e)         = Lambda (sub n m n') (subst n m e)
+subst n m (Apply e n')          = Apply (subst n m e) (sub n m n')
+subst n m (Var n')              = Var (sub n m n')
+subst n m (Let (n',e1) e2)      = Let ((sub n m n'),(subst n m e1)) (subst n m e2)
+subst n m (ACCCorrect l e)      = ACCCorrect l (subst n m e)
+subst n m (ACCFaulty l e)       = ACCFaulty l (subst n m e)
+subst n m (Observed p j e)      = Observed p j (subst n m e)
+subst n m (FunObs n' n'' p j e) = FunObs (sub n m n') (sub n m n'') p j (subst n m e)
+subst n m (Plus e1 e2)          = Plus (subst n m e1) (subst n m e2)
 
 sub :: Name -> Name -> Name -> Name
 sub n m n' = if n == n' then m else n'
@@ -287,16 +306,21 @@ fresh (ACCFaulty l e) = do
   e' <- fresh e
   return (ACCFaulty l e')
 
-fresh (Observed p e) = do
+fresh (Observed p j e) = do
   e' <- fresh e
-  return (Observed p e')
+  return (Observed p j e')
 
-fresh (FunObs x x1 p e) = do
+fresh (FunObs x x1 p j e) = do
   y <- getFreshVar x
   e' <- (fresh . subst x y) e
-  return (FunObs y x1 p e')
+  return (FunObs y x1 p j e')
 
 fresh (Exception msg) = return (Exception msg)
+
+fresh (Plus e1 e2) = do
+  e1' <- fresh e1
+  e2' <- fresh e2
+  return (Plus e1' e2')
 
 getFreshVar :: Name -> State Context Name
 getFreshVar n = do
@@ -342,11 +366,13 @@ data CompStmt
     , stmtStack  :: Stack
     , stmtUID    :: UID
     , stmtRepr   :: Judgement
+    , stmtRepr'  :: String
     }
  | IntermediateStmt
     { stmtParent :: Parent
     , stmtUID    :: UID
     , stmtRepr   :: Judgement
+    , stmtRepr'  :: String
     }
   deriving (Show,Eq,Ord)
 
@@ -381,38 +407,46 @@ successors root trc rec = case rec of
         (Root _ _ _)   -> merge root rec (suc Parent)
 
   where suc con = map mkStmt $ filter (\chd -> eventParent chd == con (eventUID rec)) trc
-        mkStmt (ConstEvent uid p repr) = IntermediateStmt p uid repr
+        mkStmt (ConstEvent uid p repr) = IntermediateStmt p uid repr (show repr)
 	mkStmt chd                     = (successors root' trc chd)
 	root' = case rec of (AppEvent _ _) -> False; _ -> root
 
 oldestUID :: [UID] -> UID
 oldestUID = head . sort
 
+jand :: Judgement -> Judgement -> Judgement
+jand Right Right = Right
+jand _     _     = Wrong
+
 merge :: Bool -> Event -> [CompStmt] -> CompStmt
 
-merge _ (Root lbl stk i) []    = CompStmt lbl stk i Right
-merge _ (Root lbl stk _) [chd] = CompStmt lbl stk i r
+merge _ (Root lbl stk i) []    = CompStmt lbl stk i Right ""
+merge _ (Root lbl stk _) [chd] = CompStmt lbl stk i r s
   where r = stmtRepr chd
+        s = stmtRepr' chd
         i = stmtUID  chd
 merge _ (Root lbl stk i) _     = error "merge: Root with multiple children?"
 
-merge _ (LamEvent i p) []   = IntermediateStmt p i Right
-merge _ (LamEvent _ p) apps = IntermediateStmt p i r
-  where r = foldl and Right (map stmtRepr apps)
+merge _ (LamEvent i p) []   = IntermediateStmt p i Right ""
+merge _ (LamEvent _ p) apps = IntermediateStmt p i r s
+  where r = foldl jand Right (map stmtRepr apps)
+        (a:pps) = map stmtRepr' apps
+        s = (foldl and' ("{" ++ a) pps) ++ "}"
         i = head . sort . (map stmtUID) $ apps
-        and Right Right = Right
-        and _     _     = Wrong
+        and' acc app = acc ++ "; " ++ app
 
 merge _ (AppEvent _ p) chds = case (length chds) of
   0 -> error "merge: Application with neither result nor argument?"
   1 -> let res = head chds
            r   = stmtRepr res
+           s   = "_ -> " ++ stmtRepr' res
            i   = stmtUID  res
-       in IntermediateStmt p i r
-  2 -> let [res,arg] = chds
+       in IntermediateStmt p i r s
+  2 -> let [arg,res] = chds
            r   = case stmtRepr arg of Right -> stmtRepr res; Wrong -> Right
+           s   = stmtRepr' arg ++ " -> " ++ stmtRepr' res
            i   = stmtUID res
-       in IntermediateStmt p i r
+       in IntermediateStmt p i r s
   _ -> error "merge: Application with multiple arguments?"
 
 --------------------------------------------------------------------------------
@@ -535,6 +569,7 @@ disp expr = do
         showVertex = (foldl (++) "") . (map showCompStmt)
         showCompStmt rec = stmtLabel rec ++ " = " ++ show (stmtRepr rec) 
                          ++ " (with stack " ++ show (stmtStack rec) ++ ")\n"
+                         ++ "from " ++ stmtRepr' rec
         showArc (Arc _ _ dep)  = show dep
 
 e1 = ACCFaulty "A" (Const Right)

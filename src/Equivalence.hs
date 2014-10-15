@@ -30,6 +30,8 @@ translateTI fs (T.Let (n,e1) e2) = I.Let (n,translateTI fs e1) (translateTI fs e
 translateTI fs (T.ACC l e)       
                    | l `elem` fs = I.ACCFaulty  l (translateTI fs e)
                    | otherwise   = I.ACCCorrect l (translateTI fs e)
+translateTI fs (T.Plus e1 e2)    = I.Plus (translateTI fs e1) (translateTI fs e2)
+
 
 ------------------------------------------------------------------------------------------
 --
@@ -42,8 +44,8 @@ translateTI fs (T.ACC l e)
 judge :: [(String,Judgement)] -> [T.CompStmt] -> [I.CompStmt]
 judge js = map judgeStmt
   where judgeStmt (T.CompStmt l s i v) = case lookup v js of
-                                                (Just j) -> I.CompStmt l s i j
-                                                _        -> error ("Need to judge " ++ v)
+                                                (Just j) -> I.CompStmt l s i j v
+                                                _        -> error ("Need to judge \"" ++ v ++ "\"")
 
 -- Secondly we build a computation graph and use algorithmic debugging to find the
 -- label(s) of cost centre's whose expressions are identified as faulty.
@@ -77,6 +79,33 @@ equivalent :: T.Expr                    -- The expression (without intention enc
                                         -- and their judgements.
            -> Assertion
 equivalent e fs js = debugI fs e @?= debugT js e
+
+------------------------------------------------------------------------------------------
+--
+-- We use the following shorthand notations in the examples:
+
+λ = T.Lambda
+λ2 a1 a2 b = λ a1 (λ a2 b)
+λ3 a1 a2 a3 b = λ a1 (λ2 a2 a3 b)
+ap fn a = T.Apply (T.Var fn) a
+ap2 fn a1 a2 = T.Apply (ap fn a1) a2
+ap3 fn a1 a2 a3 = T.Apply (ap2 fn a1 a2) a3
+ap' f a = T.Apply f a
+ap2' f a1 a2 = T.Apply (ap' f a1) a2
+ap3' f a1 a2 a3 = T.Apply (ap2' f a1 a2) a3
+
+------------------------------------------------------------------------------------------
+--
+-- Example 0: CC "main" (let f x = x
+--                           i = 8
+--                       in id i
+--                      )
+
+
+e0t = T.Let (f, λ x' (ap' (T.ACC "f" (λ x (T.Var x))) x'))
+    $ T.Let (i, T.Const 4)
+    $ T.ACC "main" (ap f i)
+  where f = "f"; f'="f'"; x="x"; x'="x'"; i="i"
 
 ------------------------------------------------------------------------------------------
 --
@@ -147,6 +176,40 @@ test2c = equivalent e2t ["main"]
                 ]
 
 ------------------------------------------------------------------------------------------
+--
+-- Example 3: let foldr1 = CC+ "foldr" \f z xs . f z xs 
+--                foldr2 = CC+ "foldr" \f z xs . f xs (foldr1 f z xs)
+--                insert = CC- "insert" \x xs = x + xs
+--                isort  = CC+ "isort" \xs . foldr2 insert xs xs
+--                ys = ☺
+--            in  CC "main" isort ys
+
+e3t = T.Let (foldr1, λ3 f' z' xs' (ap3' (T.ACC "foldr"  (λ3 f z xs (ap2 f z xs))
+                                        ) f' z' xs'))
+    $ T.Let (foldr2, λ3 f' z' xs' (ap3' (T.ACC "foldr"  (λ3 f z xs (T.Let (xs'',(ap3 foldr1 f z xs))
+                                                                          (ap2 f xs xs'')))
+                                        ) f' z' xs'))
+    $ T.Let (insert, λ2 x' xs'    (ap2' (T.ACC "insert" (λ2 x xs   (x + xs))
+                                        ) x' xs'))
+    $ T.Let (isort,  λ xs'        (ap'  (T.ACC "isort"  (λ xs      (ap3 foldr2 insert xs xs))
+                                        ) xs'))
+    $ T.Let (ys,     T.Const 7)
+    $ T.ACC "main" (ap isort ys)
+
+  where f = "f"; f'="f'"; z="z"; z'="z'"; x="x"; x'="x'"; xs="xs"; xs'="xs'"; xs''="xs''"; ys="ys"
+        foldr1="foldr1"; foldr2="foldr2"; insert="insert"; isort="isort"
+        (+) n m = T.Plus (T.Var n) (T.Var m)
+
+test3a = equivalent e3t ["insert"] 
+                [ "main = 21" ? Wrong
+                , "isort 7 = 21" ? Wrong
+                , "insert 7 = (\\7 -> 14)" ? Wrong
+                , "insert 7 = (\\14 -> 21)" ? Wrong
+                , "foldr (\\7 -> (\\7 -> 14)) = (\\7 -> (\\7 -> 14))" ? Right
+                , "foldr {(\\7 -> (\\7 -> 14)); (\\7 -> (\\14 -> 21))} = (\\7 -> (\\7 -> 21))" ? Right
+                ]
+
+------------------------------------------------------------------------------------------
 
 main = defaultMainWithOpts
        [ testCase "e1 fault in 'g'"    test1a
@@ -154,6 +217,7 @@ main = defaultMainWithOpts
        , testCase "e2 fault in 'f'"    test2a
        , testCase "e2 fault in 'g'"    test2b
        , testCase "e2 fault in 'main'" test2c
+       , testCase "e3 fault in insert" test3a
        ] (mempty { ropt_color_mode = Just ColorNever })
 
 (?) = (,)
