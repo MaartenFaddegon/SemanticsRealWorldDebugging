@@ -10,8 +10,7 @@ import Data.List (partition)
 --------------------------------------------------------------------------------
 -- Expressions
 
-data Expr = ACCCorrect Label Expr
-          | ACCFaulty  Label Expr
+data Expr = CC         Label Judgement Expr
           | Observed   Parent Judgement Expr
           | FunObs     Name Name Parent Judgement Expr
           | Const      Judgement
@@ -183,29 +182,12 @@ reduce (Var x) = do
                         fresh e
      _            -> do fresh e
 
-reduce (ACCCorrect l e) = do
+reduce (CC l j e) = do
   stk <- gets stack
   doPush l
   uid <- getUniq
   doTrace (Root l stk uid)
-  eval (Observed (Parent uid) Right e)
-
-reduce (ACCFaulty l e) = do
-  stk <- gets stack
-  doPush l
-  uid <- getUniq
-  doTrace (Root l stk uid)
-  eval (Observed (Parent uid) Wrong e)
-
--- reduce (ACCFaulty l e) = do
---   stk <- gets stack
---   doPush l
---   uid <- getUniq; uidc <- getUniq
---   doTrace (Root l stk uid); doTrace (ConstEvent uidc (Parent uid) Wrong)
---   r <- eval e
---   case r of
---     (Const jmt) -> return (Const Wrong)
---     _           -> return r -- TODO lift lambda and return Wrong?
+  eval (Observed (Parent uid) j e)
 
 reduce (Observed p j e) = do
   stk <- gets stack
@@ -217,9 +199,9 @@ reduce (Observed p j e) = do
     -- ObsC rule in paper
     (Const v) -> do
       uid <- getUniq
-      let v' = v `jand` j
-      doTrace (ConstEvent uid p v')
-      return (Const v')
+      let w = v `jand` j
+      doTrace (ConstEvent uid p w)
+      return (Const w)
 
     -- ObsL rule in paper
     (Lambda x e) -> do
@@ -244,11 +226,9 @@ reduce (Plus e1 e2) = do
   e1' <- eval e1
   e2' <- eval e2
   case (e1',e2') of
-        (Const v1, Const v2) -> return $ Const (v1 + v2)
+        (Const v1, Const v2) -> return $ Const (v1 `jand` v2)
         (l,r)                -> return (Exception $ "Attempt to sum non-constant values: "
                                                   ++ show l ++ " + " ++ show r)
-  where (+) Right Right = Right
-        (+) _     _     = Wrong
 
 reduce (Exception msg) = return (Exception msg)
 
@@ -263,8 +243,7 @@ subst n m (Lambda n' e)         = Lambda (sub n m n') (subst n m e)
 subst n m (Apply e n')          = Apply (subst n m e) (sub n m n')
 subst n m (Var n')              = Var (sub n m n')
 subst n m (Let (n',e1) e2)      = Let ((sub n m n'),(subst n m e1)) (subst n m e2)
-subst n m (ACCCorrect l e)      = ACCCorrect l (subst n m e)
-subst n m (ACCFaulty l e)       = ACCFaulty l (subst n m e)
+subst n m (CC l j e)            = CC l j (subst n m e)
 subst n m (Observed p j e)      = Observed p j (subst n m e)
 subst n m (FunObs n' n'' p j e) = FunObs (sub n m n') (sub n m n'') p j (subst n m e)
 subst n m (Plus e1 e2)          = Plus (subst n m e1) (subst n m e2)
@@ -298,13 +277,9 @@ fresh (Apply f x) = do
 fresh (Var x) =
   return (Var x)
 
-fresh (ACCCorrect l e) = do
+fresh (CC l j e) = do
   e' <- fresh e
-  return (ACCCorrect l e')
-
-fresh (ACCFaulty l e) = do
-  e' <- fresh e
-  return (ACCFaulty l e')
+  return (CC l j e')
 
 fresh (Observed p j e) = do
   e' <- fresh e
@@ -571,151 +546,3 @@ disp expr = do
                          ++ " (with stack " ++ show (stmtStack rec) ++ ")\n"
                          ++ "from " ++ stmtRepr' rec
         showArc (Arc _ _ dep)  = show dep
-
-e1 = ACCFaulty "A" (Const Right)
-
-e2 = Let ("x", Const Right) (ACCFaulty "X" (Var "x"))
-
-e3 = Let ("i", (Const Right)) 
-         (Apply (ACCFaulty "lam" (Lambda "x" (Var "x"))) "i")
-
-e4 = Let ("i", (Const Right)) 
-         (Apply (ACCFaulty "lam" (Lambda "x" (Const Right))) "i")
-
-
--- main = let i = Right
---            id = sacc "id" \y -> y
---        in (sacc "h" \f x -> f x) id i
---
-e5 =  ACCCorrect "main"
-      ( Let    ("i", (Const Right)) 
-      ( Let    ("id",ACCFaulty "id" (Lambda "y" (Var "y")))
-      {- in -} ( Apply 
-                 ( Apply ( ACCCorrect "h" 
-                   ( Lambda "f" (Lambda "x" (Apply (Var "f") "x"))
-                   )
-                 ) "id" ) "i"
-               )
-      )
-      )
-
-e5' = ( Let    ("i", (Const Right)) 
-      ( Let    ("id",ACCFaulty "id" (Lambda "y" (Var "y")))
-      {- in -} ( Apply 
-                 ( Apply 
-                   ( Lambda "f" (Lambda "x" (Apply (Var "f") "x"))
-                   ) "id" ) "i"
-               )
-      )
-      )
-
--- Demonstrates that it is important to consider 'call' as well when
--- adding dependencies based on the cost centre stack.
---
-e6 = 
-  ACCCorrect "Z"
-  (Let 
-    ("f",ACCCorrect "B" (Lambda "x" (ACCFaulty "L" (Const Right))))
-    (Apply 
-      (ACCCorrect "A" (Lambda "y" (Apply (Var "y") "z")))
-    "f"
-    )
-  )
-
-
--- CC "Z" (let {f = CC "C" (\x . CC "L" 4), x = 5} (CC "A" f x))
-e6' = (Let 
-           ("f",ACCCorrect "L" (Lambda "x" (ACCFaulty "B" (Const Right))))
-           (ACCCorrect "A" (Apply (Var "f") "y"))
-      )
-
--- A demonstration of 'strange behaviour' because we don't properly
--- freshen our varibles: scopes don't work as we would expect them to.
--- In this case it results in two events that claim to be the arg-value of
--- the same parent-event.
-e7 = Apply
-      (Lambda "x"
-        (Let
-          ("z",Const Right)
-          (Apply
-            (Let
-              ("y",Apply (Lambda "y" (ACCCorrect "D" (Lambda "z" (ACCFaulty "G" (Var "y"))))) "z")
-              (Apply (Var "y") "y")
-            )
-            "x"
-          )
-        )
-      ) "z"  -- Try replacing "z" with "a" here
-
--- An example of a tree with two branches that appear to be both faulty.
--- We can only guarantee the 'oldest' branch to be actually faulty.
-e8 = ACCCorrect "root" (Let ("y",ACCFaulty "LET" (Const Right))
-                            (ACCCorrect "IN" (Var "y"))
-                       )
-
-
-e9 = ACCCorrect "root" (Apply (Apply (Let ("x",Let ("y",Apply (Lambda "z" (ACCCorrect "CC1" (Lambda "y" (Var "z")))) "y") (Lambda "x" (ACCCorrect "CC2" (Var "x")))) (Apply (Let ("z",Apply (Lambda "z" (Var "y")) "z") (Apply (Apply (Var "x") "x") "z")) "y")) "x") "y")
-
-e10 = ACCCorrect "root" (Apply (Apply (Let ("x",Lambda "y" (ACCFaulty "CC1" (Apply (Lambda "z" (ACCCorrect "CC2" (Var "z"))) "y"))) (Let ("y",Const Right) (Var "x"))) "x") "y")
-
-
--- Demonstrating the need for two levels of calls. Could this be necessary for n-levels? :(
--- See callDependency2.
--- But this only "works" because the let lives behind its scope...
-
-e11 = ACCCorrect "root" 
-        (Let   ("x",ACCCorrect "CC1" (Lambda "y" 
-                  (ACCFaulty "CC2" (Apply (Lambda "x" (ACCCorrect "CC3" (Var "x"))) "y")))
-               ) 
-        {-in-} (Apply (Apply (Lambda "x" (ACCCorrect "CC4" (Apply (Lambda "y" (Lambda "x" (Apply (Apply (Var "x") "x") "z"))) "z"))) "y") "x"))
-
-e12 = Let            ("f", ACCCorrect "f" $ Lambda "x" (Var "x"))
-      $ Let          ("g", ACCCorrect "g" $ Lambda "y" (Apply (Var "f") "y"))
-      $ Let          ("c", ACCCorrect "c" $ Const Right)
-      $ {- in -}     ACCCorrect "main" (Apply (Var "g") "c")
-
-      where cclet lbl b i = ACCCorrect lbl (Let b i)
-
-e13 = Let        ("f", Lambda "y" (Var "y"))
-      $ Let      ("f", Lambda "x" (Const Wrong))
-      $ Let      ("c", Const Right)
-      $ {- in -} Apply (Var "f") "c"
-
-e14 = Let        ("id", ACCCorrect "id" $ Lambda "x" (Var "x"))
-      $ Let      ("y", Const Right)
-      $ Let      ("z", Apply (Var "id") "y")
-      $ {- in -} (Apply (Var "id") "z")
-
-e_id = Let ("id", ACCCorrect "id" (Lambda "x" (Var "x")))
-     $ Let ("y", Const Right) $ Apply (Var "id") "y"
-
-e_isort = Let ("insertC", Lambda "x" $ ACCCorrect "insert" (Var "x"))
-        $ Let ("insertF", Lambda "x" $ ACCFaulty  "insert" (Var "x"))
-        $ Let ("xs", Const Right)
-        $ ACCCorrect "isort" $ Let ("ys", Apply (Var "insertC") "xs")
-                             $ Apply (Var "insertF") "ys"
-
-e_call = Let ("id", Lambda "x" $ ACCCorrect "id" (Var "x"))
-       $ Let ("j", Const Right)
-       $ ACCCorrect "root" (Apply (Var "id") "j")
-
-
--- let f x y = y in f 3
-e_twoargs =  Let ("f", ACCCorrect "f" (Lambda "x" (Lambda "y" (Var "y"))))
-          $  Let ("a", Const Right) 
-          $  Let ("b", Const Right) 
-          $ Apply (Apply (Var "f") "a") "b"
-
-
-
--- let h = \f -> f 3 in h id
-e_ho = Let ("h", ACCCorrect "h" (Lambda "f" (Let ("c", Const Right)
-                                             (Apply (Var "f") "c"))))
-     $ Let ("id", Lambda "x" (Var "x"))
-     $ Apply (Var "h") "id"
-
-
--- let {y = 3} (CC "A" (\x . (CC "B" x) 3))
-e_nest = Let ("y", Const Right)
-       $ ACCCorrect "A"
-       $ Apply (Lambda "x" (ACCCorrect "B" (Var "x"))) "y"

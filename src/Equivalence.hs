@@ -28,8 +28,8 @@ translateTI fs (T.Apply e n)     = I.Apply (translateTI fs e) n
 translateTI fs (T.Var n)         = I.Var n
 translateTI fs (T.Let (n,e1) e2) = I.Let (n,translateTI fs e1) (translateTI fs e2)
 translateTI fs (T.ACC l e)       
-                   | l `elem` fs = I.ACCFaulty  l (translateTI fs e)
-                   | otherwise   = I.ACCCorrect l (translateTI fs e)
+                   | l `elem` fs = I.CC l Wrong (translateTI fs e)
+                   | otherwise   = I.CC l Right (translateTI fs e)
 translateTI fs (T.Plus e1 e2)    = I.Plus (translateTI fs e1) (translateTI fs e2)
 
 
