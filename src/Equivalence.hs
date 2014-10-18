@@ -93,19 +93,23 @@ ap3 fn a1 a2 a3 = T.Apply (ap2 fn a1 a2) a3
 ap' f a = T.Apply f a
 ap2' f a1 a2 = T.Apply (ap' f a1) a2
 ap3' f a1 a2 a3 = T.Apply (ap2' f a1 a2) a3
+cc = T.ACC
+var = T.Var
+val = T.Const
+
 
 ------------------------------------------------------------------------------------------
 --
--- Example 0: CC "main" (let f x = x
---                           i = 8
---                       in id i
---                      )
+-- Example 0: let dbl x = (\x' -> cc "dbl" x') x
+--                i = 4
+--            in cc "main" id i
+--            
 
 
-e0t = T.Let (f, λ x' (ap' (T.ACC "f" (λ x (T.Var x))) x'))
-    $ T.Let (i, T.Const 4)
-    $ T.ACC "main" (ap f i)
-  where f = "f"; f'="f'"; x="x"; x'="x'"; i="i"
+e0t = T.Let (dbl, λ x' (ap' (cc "dbl" (λ x (var x))) x'))
+    $ T.Let (i, val 4)
+    $ cc "main" (ap dbl i)
+  where dbl = "dbl"; dbl'="dbl'"; x="x"; x'="x'"; i="i"
 
 ------------------------------------------------------------------------------------------
 --
