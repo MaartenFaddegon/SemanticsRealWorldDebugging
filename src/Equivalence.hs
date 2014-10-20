@@ -214,6 +214,20 @@ test3a = equivalent e3t ["insert"]
                 ]
 
 ------------------------------------------------------------------------------------------
+--
+-- Example 4: let i         = 2
+--                dbl x'    = (\x -> cc "dbl" (x+x)) x'
+--                twc f' x' = (\f x -> cc "twc" f x) f x
+--            in cc "main" id i
+-- 
+e4t = T.Let (i, val 2)
+    $ T.Let (dbl, λ x' (ap' (cc "dbl" (λ x (x + x))) x'))
+    $ T.Let (twc, λ2 f' x' (ap2' (cc "twc" (λ x (var x))) f' x'))
+    $ cc "main" (ap2 twc dbl i)
+
+  where dbl = "dbl"; dbl'="dbl'"; x="x"; x'="x'"; i="i"; twc = "twc"; twc'="twc'"
+        (+) n m = T.Plus (T.Var n) (T.Var m); f = "f"; f'="f'";
+------------------------------------------------------------------------------------------
 
 main = defaultMainWithOpts
        [ testCase "e1 fault in 'g'"    test1a
