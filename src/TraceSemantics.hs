@@ -2,8 +2,7 @@ module TraceSemantics where
 
 import Control.Monad.State
 import Data.Graph.Libgraph
-import Data.List (sort)
-import Data.List (partition)
+import Data.List (sort,partition,permutations)
 import qualified Debug.Trace as Debug
 
 --------------------------------------------------------------------------------
@@ -436,7 +435,8 @@ mkGraph' trace
   | length roots < 1 = error "mkGraph: no root"
   | otherwise = Graph (head roots)
                        trace
-                       (nubMin $ foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
+                       (mkArcs trace)
+                       -- (nubMin $ foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
   where roots = filter isRoot trace
         isRoot CompStmt{stmtStack=s} = s == []
         isRoot _                              = error "mkGraph': Leftover intermediate stmt?"
@@ -455,9 +455,32 @@ nubMin l = nub' l []
 
     equiv (Arc v w _) (Arc x y _) = v == x && w == y
 
+-- Implementation of combinations function taken from http://stackoverflow.com/a/22577148/2424911
+combinations :: Int -> [a] -> [[a]]
+combinations k xs = combinations' (length xs) k xs
+  where combinations' n k' l@(y:ys)
+          | k' == 0   = [[]]
+          | k' >= n   = [l]
+          | null l    = []
+          | otherwise = map (y :) (combinations' (n - 1) (k' - 1) ys) 
+                        ++ combinations' (n - 1) k' ys
+
+
+permutationsOfLength :: Int -> [a] -> [[a]]
+permutationsOfLength x = (foldl (++) []) . (map permutations) . (combinations x)
+
+mkArcs :: [CompStmt] -> [Arc CompStmt Dependency]
+mkArcs cs = callArcs ++ pushArcs
+  where pushArcs = map (\[c1,c2]    -> Arc c1 c2 PushDep) ps 
+        callArcs = foldl (\as [c1,c2,c3] -> (Arc c1 c2 $ CallDep 1) 
+                                            : ((Arc c2 c3 $ CallDep 1) : as)) [] ts 
+        ps = filter (\[c1,c2]    -> pushDependency c1 c2)    (permutationsOfLength 2 cs)
+        ts = filter (\[c1,c2,c3] -> callDependency c1 c2 c3) (permutationsOfLength 3 cs)
+
 arcsFrom :: CompStmt -> [CompStmt] -> [Arc CompStmt Dependency]
 arcsFrom src trc =  ((map (\tgt -> Arc src tgt PushDep)) . (filter isPushArc) $ trc)
                  ++ ((map (\tgt -> Arc src tgt (CallDep 1))) . (filter isCall1Arc) $ trc)
+
                  -- MF TODO: do we need level-2 arcs?
                  -- ++ ((map (\tgt -> Arc src tgt (CallDep 2))) . (filter isCall2Arc) $ trc)
                  
@@ -465,7 +488,7 @@ arcsFrom src trc =  ((map (\tgt -> Arc src tgt PushDep)) . (filter isPushArc) $ 
   where isPushArc = pushDependency src
         
         isCall1Arc = anyOf $ map (flip callDependency src) trc
-                    -- anyOf $ map (callDependency src) trc
+                     -- anyOf $ map (callDependency src) trc
 
         isCall2Arc = anyOf $  apmap (map (callDependency2 src) trc) trc
                            ++ apmap (map (callDependency2' src) trc) trc
@@ -510,8 +533,8 @@ disp expr = do
         shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
         showVertex = (foldl (++) "") . (map showStmt)
-        showStmt (CompStmt l s i r) = r
-        showArc _  = ""
+        showStmt (CompStmt l s i r) = r ++ "(with stack " ++ show s ++ ")"
+        showArc (Arc _ _ dep)  = show dep
 
 e1 = ACC "A" (Const 42)
 

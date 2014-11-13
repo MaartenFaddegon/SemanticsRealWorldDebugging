@@ -3,9 +3,8 @@ module IntendedSemantics where
 import Control.Monad.State
 import Prelude hiding (Right)
 import Data.Graph.Libgraph
-import Data.List (sort)
+import Data.List (sort,partition,permutations)
 import GHC.Exts (sortWith)
-import Data.List (partition)
 
 --------------------------------------------------------------------------------
 -- Expressions
@@ -306,11 +305,11 @@ getFreshVar n = do
 --------------------------------------------------------------------------------
 -- Tracing
 
-data Judgement  = Right | Wrong deriving (Eq,Ord)
+-- data Judgement  = Right | Wrong deriving (Eq,Ord)
 
-instance Show Judgement where
-  show Right = "☺"
-  show Wrong = "☹"
+-- instance Show Judgement where
+--   show Right = "☺"
+--   show Wrong = "☹"
 
 type Trace = [Event]
 
@@ -446,7 +445,8 @@ mkGraph' trace
   | length roots < 1 = error "mkGraph: no root"
   | otherwise = Graph (head roots)
                        trace
-                       (nubMin $ foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
+                       (mkArcs trace)
+                       -- (nubMin $ foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
   where roots = filter isRoot trace
         isRoot CompStmt{stmtStack=s} = s == []
         isRoot _                              = error "mkGraph': Leftover intermediate stmt?"
@@ -465,11 +465,36 @@ nubMin l = nub' l []
 
     equiv (Arc v w _) (Arc x y _) = v == x && w == y
 
+-- Implementation of combinations function taken from http://stackoverflow.com/a/22577148/2424911
+combinations :: Int -> [a] -> [[a]]
+combinations k xs = combinations' (length xs) k xs
+  where combinations' n k' l@(y:ys)
+          | k' == 0   = [[]]
+          | k' >= n   = [l]
+          | null l    = []
+          | otherwise = map (y :) (combinations' (n - 1) (k' - 1) ys) 
+                        ++ combinations' (n - 1) k' ys
+
+
+permutationsOfLength :: Int -> [a] -> [[a]]
+permutationsOfLength x ys
+  | length ys < x = []
+  | otherwise     = (foldl (++) []) . (map permutations) . (combinations x) $ ys
+
+mkArcs :: [CompStmt] -> [Arc CompStmt Dependency]
+mkArcs cs = callArcs ++ pushArcs
+  where pushArcs = map (\[c1,c2]    -> Arc c1 c2 PushDep) ps 
+        callArcs = foldl (\as [c1,c2,c3] -> (Arc c1 c2 $ CallDep 1) 
+                                            : ((Arc c2 c3 $ CallDep 1) : as)) [] ts 
+        ps = filter (\[c1,c2]    -> pushDependency c1 c2)    (permutationsOfLength 2 cs)
+        ts = filter (\[c1,c2,c3] -> callDependency c1 c2 c3) (permutationsOfLength 3 cs)
+
 arcsFrom :: CompStmt -> [CompStmt] -> [Arc CompStmt Dependency]
-arcsFrom src trc =  ((map (\tgt -> Arc src tgt PushDep)) . (filter isPushArc) $ trc)
-                 ++ ((map (\tgt -> Arc src tgt (CallDep 1))) . (filter isCall1Arc) $ trc)
-                 -- MF TODO: do we need level-2 arcs?
-                 -- ++ ((map (\tgt -> Arc src tgt (CallDep 2))) . (filter isCall2Arc) $ trc)
+arcsFrom src trc 
+  =  ((map (\tgt -> Arc src tgt PushDep)) . (filter isPushArc) $ trc)
+  ++ ((map (\tgt -> Arc src tgt (CallDep 1))) . (filter isCall1Arc) $ trc)
+  -- MF TODO: do we need level-2 arcs?
+  -- ++ ((map (\tgt -> Arc src tgt (CallDep 2))) . (filter isCall2Arc) $ trc)
                  
 
   where isPushArc = pushDependency src
@@ -508,11 +533,18 @@ callDependency2' pApp1 pApp2 pLam c = call pApp (nextStack pLam) == stmtStack c
 -- Examples.
 
 findFaulty' :: CompGraph -> [[CompStmt]]
-findFaulty' = findFaulty wrongCC mergeCC
+findFaulty' = findFaulty wrongCC cat
 
-mergeCC ws = foldl (++) [] ws
+cat ws = foldl (++) [] ws
 
-wrongCC = foldl (\w r -> case stmtRepr r of Wrong -> True; _ -> w) False
+-- wrongCC = foldl (\w r -> case stmtRepr r of Wrong -> True; _ -> w) False
+wrongCC :: [CompStmt] -> Judgement
+wrongCC = foldl (\j v -> j & (stmtRepr v)) Right
+
+  where (&) :: Judgement -> Judgement -> Judgement
+        Right & Right = Right
+        _ & _         = Wrong
+
 
 debug :: Expr -> IO ()
 debug redex = do

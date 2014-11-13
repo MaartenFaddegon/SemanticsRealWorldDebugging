@@ -4,7 +4,8 @@
 
 import qualified TraceSemantics    as T
 import qualified IntendedSemantics as I
-import IntendedSemantics(Judgement(..),Label)
+import IntendedSemantics(Label)
+import Data.Graph.Libgraph(Judgement(..))
 
 import Prelude hiding (Right)
 import Data.Graph.Libgraph
@@ -227,6 +228,28 @@ e4t = T.Let (i, val 2)
 
   where dbl = "dbl"; dbl'="dbl'"; x="x"; x'="x'"; i="i"; twc = "twc"; twc'="twc'"
         (+) n m = T.Plus (T.Var n) (T.Var m); f = "f"; f'="f'";
+
+------------------------------------------------------------------------------------------
+--
+-- Example 5: let f = cc "f" let g = cc "g" \x -> x+x
+--                           in "f_in" \y -> f y
+--                k = 3
+--            in cc "main" (f k)
+
+
+e5t :: T.Expr
+e5t = cc "caf"
+    $ T.Let (f, cc "f" (T.Let (g, (λ x (T.Plus (T.Var x) (val 1))))
+                       (λ y' (ap' (cc "f_in" (λ y (ap g y))) y')))) 
+    $ T.Let (i, val 3)
+    $ T.Let (j, cc "j" (ap f i))
+    $ cc "main" (ap f j)
+    
+  where i = "i"; j = "j"; f = "f"; g = "g"; x = "x"; x' = "x'"; 
+        y = "y"; y' = "y'"; z' = "z'"
+
+
+
 ------------------------------------------------------------------------------------------
 
 main = defaultMainWithOpts
