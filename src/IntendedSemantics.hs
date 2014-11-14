@@ -564,17 +564,26 @@ oldest rs = (:[]) . head . (sortWith getUID) $ rs
 tracedEval :: Expr -> (Expr,CompGraph)
 tracedEval = mkGraph . mkStmts . evaluate
 
+dispTxt :: Expr -> IO ()  
+dispTxt = disp' (putStrLn . shw)
+  where shw :: CompGraph -> String
+        shw g = "\nComputation statements:\n" ++ unlines (map showVertex $ vertices g)
+
+-- Requires Imagemagick to be installed.
 disp :: Expr -> IO ()
-disp expr = do 
-  putStrLn (messages ++ strc)
-  writeFile "log" (messages ++ strc)
-  (display shw) . snd . mkGraph . mkStmts $ (reduct,trc)
-  where (reduct,trc,messages) = evaluate' expr
-        strc = foldl (\acc s -> acc ++ "\n" ++ s) "" (map show $ reverse trc)
-        shw :: CompGraph -> String
+disp = disp' (display shw)
+  where shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
-        showVertex = (foldl (++) "") . (map showCompStmt)
-        showCompStmt rec = stmtLabel rec ++ " = " ++ show (stmtRepr rec) 
-                         ++ " (with stack " ++ show (stmtStack rec) ++ ")\n"
-                         ++ "from " ++ stmtRepr' rec
-        showArc (Arc _ _ dep)  = show dep
+
+showVertex = (foldl (++) "") . (map showCompStmt)
+showCompStmt rec = stmtLabel rec ++ " = " ++ show (stmtRepr rec) 
+                   ++ " (with stack " ++ show (stmtStack rec) ++ ")\n"
+                   ++ "from " ++ stmtRepr' rec
+showArc (Arc _ _ dep)  = show dep
+
+disp' f expr = do
+  putStrLn (messages ++ strc)
+  -- writeFile "log" (messages ++ strc)
+  f . snd . mkGraph . mkStmts $ (reduct,trc)
+  where (reduct,trc,messages) = evaluate' expr
+        strc = foldl (\acc s -> acc ++ "\n" ++ s) "\nEvent trace:" (map show $ reverse trc)
