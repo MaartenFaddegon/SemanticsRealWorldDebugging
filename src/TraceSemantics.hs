@@ -2,8 +2,7 @@ module TraceSemantics where
 
 import Control.Monad.State
 import Data.Graph.Libgraph
-import Data.List (sort)
-import Data.List (partition)
+import Data.List (sort,partition,permutations)
 import qualified Debug.Trace as Debug
 
 --------------------------------------------------------------------------------
@@ -436,7 +435,8 @@ mkGraph' trace
   | length roots < 1 = error "mkGraph: no root"
   | otherwise = Graph (head roots)
                        trace
-                       (nubMin $ foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
+                       (mkArcs trace)
+                       -- (nubMin $ foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
   where roots = filter isRoot trace
         isRoot CompStmt{stmtStack=s} = s == []
         isRoot _                              = error "mkGraph': Leftover intermediate stmt?"
@@ -455,9 +455,32 @@ nubMin l = nub' l []
 
     equiv (Arc v w _) (Arc x y _) = v == x && w == y
 
+-- Implementation of combinations function taken from http://stackoverflow.com/a/22577148/2424911
+combinations :: Int -> [a] -> [[a]]
+combinations k xs = combinations' (length xs) k xs
+  where combinations' n k' l@(y:ys)
+          | k' == 0   = [[]]
+          | k' >= n   = [l]
+          | null l    = []
+          | otherwise = map (y :) (combinations' (n - 1) (k' - 1) ys) 
+                        ++ combinations' (n - 1) k' ys
+
+
+permutationsOfLength :: Int -> [a] -> [[a]]
+permutationsOfLength x = (foldl (++) []) . (map permutations) . (combinations x)
+
+mkArcs :: [CompStmt] -> [Arc CompStmt Dependency]
+mkArcs cs = callArcs ++ pushArcs
+  where pushArcs = map (\[c1,c2]    -> Arc c1 c2 PushDep) ps 
+        callArcs = foldl (\as [c1,c2,c3] -> (Arc c1 c2 $ CallDep 1) 
+                                            : ((Arc c2 c3 $ CallDep 1) : as)) [] ts 
+        ps = filter (\[c1,c2]    -> pushDependency c1 c2)    (permutationsOfLength 2 cs)
+        ts = filter (\[c1,c2,c3] -> callDependency c1 c2 c3) (permutationsOfLength 3 cs)
+
 arcsFrom :: CompStmt -> [CompStmt] -> [Arc CompStmt Dependency]
 arcsFrom src trc =  ((map (\tgt -> Arc src tgt PushDep)) . (filter isPushArc) $ trc)
                  ++ ((map (\tgt -> Arc src tgt (CallDep 1))) . (filter isCall1Arc) $ trc)
+
                  -- MF TODO: do we need level-2 arcs?
                  -- ++ ((map (\tgt -> Arc src tgt (CallDep 2))) . (filter isCall2Arc) $ trc)
                  
@@ -465,7 +488,7 @@ arcsFrom src trc =  ((map (\tgt -> Arc src tgt PushDep)) . (filter isPushArc) $ 
   where isPushArc = pushDependency src
         
         isCall1Arc = anyOf $ map (flip callDependency src) trc
-                    -- anyOf $ map (callDependency src) trc
+                     -- anyOf $ map (callDependency src) trc
 
         isCall2Arc = anyOf $  apmap (map (callDependency2 src) trc) trc
                            ++ apmap (map (callDependency2' src) trc) trc
@@ -500,96 +523,30 @@ callDependency2' pApp1 pApp2 pLam c = call pApp (nextStack pLam) == stmtStack c
 tracedEval :: Expr -> (Expr,CompGraph)
 tracedEval = mkGraph . mkStmts . evaluate
 
+dispTxt :: Expr -> IO ()  
+dispTxt = disp' (putStrLn . shw)
+  where shw :: CompGraph -> String
+        shw g = "\nComputation statements:\n" ++ unlines (map showVertex' $ vertices g)
+
+-- Requires Imagemagick to be installed.
 disp :: Expr -> IO ()
-disp expr = do
-  putStrLn (messages ++ strc)
-  writeFile "log" (messages ++ strc)
-  (display shw) . snd . mkGraph . mkStmts $ (reduct,trc)
-  where (reduct,trc,messages) = evaluate' expr
-        strc = foldl (\acc s -> acc ++ "\n" ++ s) "" (map show $ reverse trc)
-        shw :: CompGraph -> String
+disp = disp' (display shw)
+  where shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
-        showVertex = (foldl (++) "") . (map showStmt)
-        showStmt (CompStmt l s i r) = r
-        showArc _  = ""
 
-e1 = ACC "A" (Const 42)
+showVertex :: [CompStmt] -> (String,String)
+showVertex v = (showVertex' v, "")
 
-e2 = Let ("x", Const 42) (ACC "X" (Var "x"))
+showVertex' :: [CompStmt] -> String
+showVertex' = (foldl (++) "") . (map showCompStmt)
 
-e3 = Let ("i", (Const 42)) 
-         (Apply (ACC "id" (Lambda "x" (Var "x"))) "i")
+showCompStmt :: CompStmt -> String
+showCompStmt (CompStmt l s i r) = r ++ " (with stack " ++ show s ++ ")"
+showArc (Arc _ _ dep)  = show dep
 
-e4 = Let ("i", (Const 42)) 
-         (Apply (ACC "id" (Lambda "x" (Const 1))) "i")
-
-e5 =  ACC "main"
-      ( Let ("i", (Const 8)) 
-      $ Let ("map", ACC "map" 
-                  $ Lambda "f" (Lambda "x"(Apply (Var "f") "x")))
-      $ Let ("id",ACC "id" (Lambda "y" (Var "y")))
-      $ Apply (Apply (Var "map") "id") "i"
-      )
-
-e5' = ( Let ("i", (Const 8)) 
-      $ Let ("map", ACC "map" 
-                  $ Lambda "f" (Lambda "x"(Apply (Var "f") "x")))
-      $ Let ("id",Lambda "y" (Var "y"))
-      $ Apply (Apply (Var "map") "id") "i"
-      )
-
--- Demonstrates that it is important to consider 'call' as well when
--- adding dependencies based on the cost centre stack.
-e6 = 
-  ACC "root"
-  (Let 
-    ("f",ACC "F1" (Lambda "x" (ACC "F2" (Const 1))))
-    (Apply 
-      (ACC "IN" (Lambda "y" (Apply (Var "y") "z")))
-    "f"
-    )
-  )
-
--- A demonstration of 'strange behaviour' because we don't properly
--- freshen our varibles: scopes don't work as we would expect them to.
--- In this case it results in two events that claim to be the arg-value of
--- the same parent-event.
-e7 = Apply
-      (Lambda "x"
-        (Let
-          ("z",Const 42) 
-          (Apply 
-            (Let 
-              ("y",Apply (Lambda "y" (ACC"D" (Lambda "z" (ACC"G" (Var "y"))))) "z")
-              (Apply (Var "y") "y")
-            )
-            "x"
-          )
-        )
-      ) "z"  -- Try replacing "z" with "a" here
-
--- An example of a tree with two branches that appear to be both faulty.
--- We can only guarantee the 'oldest' branch to be actually faulty.
-e8 = ACC "root" (Let ("y",ACC "LET" (Const 42))
-                     (ACC "IN" (Var "y"))
-                )
-
-
-e9 = ACC "root" (Apply (Apply (Let ("x",Let ("y",Apply (Lambda "z" (ACC "CC1" (Lambda "y" (Var "z")))) "y") (Lambda "x" (ACC "CC2" (Var "x")))) (Apply (Let ("z",Apply (Lambda "z" (Var "y")) "z") (Apply (Apply (Var "x") "x") "z")) "y")) "x") "y")
-
--- Demonstrating the need for two levels of calls. Could this be necessary for n-levels? :(
--- See callDependency2.
--- But this only "works" because the let lives behind its scope...
-
-e11 = 
-  ACC "root"
-    (Let ("x",ACC "CC1" (Lambda "y" (ACC "CC2" (Apply (Lambda "x" (ACC "CC3" (Var "x"))) "y")))) 
-         (Apply 
-           (Apply
-             (Lambda "x" (ACC "CC4" (Apply (Lambda "y" (Lambda "x" (Apply (Apply (Var "x") "x") "z")))
-                                           "z"
-                                    )
-                         )) 
-             "y") 
-           "x")
-    )
+disp' f expr = do
+  putStrLn (messages ++ strc)
+  -- writeFile "log" (messages ++ strc)
+  f . snd . mkGraph . mkStmts $ (reduct,trc)
+  where (reduct,trc,messages) = evaluate' expr
+        strc = foldl (\acc s -> acc ++ "\n" ++ s) "\nEvent trace:" (map show $ reverse trc)
