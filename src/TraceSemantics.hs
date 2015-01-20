@@ -526,7 +526,7 @@ tracedEval = mkGraph . mkStmts . evaluate
 dispTxt :: Expr -> IO ()  
 dispTxt = disp' (putStrLn . shw)
   where shw :: CompGraph -> String
-        shw g = "\nComputation statements:\n" ++ unlines (map showVertex $ vertices g)
+        shw g = "\nComputation statements:\n" ++ unlines (map showVertex' $ vertices g)
 
 -- Requires Imagemagick to be installed.
 disp :: Expr -> IO ()
@@ -534,8 +534,14 @@ disp = disp' (display shw)
   where shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
 
-showVertex = (foldl (++) "") . (map showStmt)
-showStmt (CompStmt l s i r) = r ++ " (with stack " ++ show s ++ ")"
+showVertex :: [CompStmt] -> (String,String)
+showVertex v = (showVertex' v, "")
+
+showVertex' :: [CompStmt] -> String
+showVertex' = (foldl (++) "") . (map showCompStmt)
+
+showCompStmt :: CompStmt -> String
+showCompStmt (CompStmt l s i r) = r ++ " (with stack " ++ show s ++ ")"
 showArc (Arc _ _ dep)  = show dep
 
 disp' f expr = do

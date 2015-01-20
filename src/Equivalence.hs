@@ -248,7 +248,20 @@ e5t = cc "caf"
   where i = "i"; j = "j"; f = "f"; g = "g"; x = "x"; x' = "x'"; 
         y = "y"; y' = "y'"; z' = "z'"
 
+------------------------------------------------------------------------------------------
+--
+-- Example 6: After question by an anonymous reviewer from the 2nd round of PLDI
+--
+-- a)     let h = push "h" (\f -> let {fourty=fourty} f fourty)
+--            f = (\x -> x)
+--        in h f
+--
+-- b)     let h = push "h" (\f x -> let {y=-40} x+f+y )
+--            fourty = 40
+--            f = h(fourty)
+--        in  f {fourty}
 
+e6ta = undefined
 
 ------------------------------------------------------------------------------------------
 
