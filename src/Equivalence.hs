@@ -227,6 +227,28 @@ e4t = T.Let (i, val 2)
 
   where dbl = "dbl"; dbl'="dbl'"; x="x"; x'="x'"; i="i"; twc = "twc"; twc'="twc'"
         (+) n m = T.Plus (T.Var n) (T.Var m); f = "f"; f'="f'";
+
+
+------------------------------------------------------------------------------------------
+--
+-- Example 5: After question by an anonymous reviewer from the 2nd round of PLDI
+--
+-- a)     let h = push "h" (\f -> let {fourty=fourty} f fourty)
+--            f = (\x -> x)
+--        in h f
+--
+-- b)     let h = push "h" (\f x -> let {y=-40} x+f+y )
+--            fourty = 40
+--            f = h(fourty)
+--        in  f {fourty}
+
+e5t = T.Let (i, val 2)
+    $ T.Let (dbl, λ x' (ap' (cc "dbl" (λ x (x + x))) x'))
+    $ T.Let (twc, λ2 f' x' (ap2' (cc "twc" (λ x (var x))) f' x'))
+    $ cc "main" (ap2 twc dbl i)
+
+
+
 ------------------------------------------------------------------------------------------
 
 main = defaultMainWithOpts

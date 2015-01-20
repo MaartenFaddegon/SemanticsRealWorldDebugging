@@ -306,11 +306,13 @@ getFreshVar n = do
 --------------------------------------------------------------------------------
 -- Tracing
 
-data Judgement  = Right | Wrong deriving (Eq,Ord)
-
-instance Show Judgement where
-  show Right = "☺"
-  show Wrong = "☹"
+-- MF TODO: this is now define in libgraph.
+-- 
+-- data Judgement  = Right | Wrong deriving (Eq,Ord)
+-- 
+-- instance Show Judgement where
+--   show Right = "☺"
+--   show Wrong = "☹"
 
 type Trace = [Event]
 

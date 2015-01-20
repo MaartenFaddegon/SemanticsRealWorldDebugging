@@ -7,7 +7,7 @@ Cabal-Version:  >= 1.10
 extra-source-files: README
 
 Executable Semantics-test
-  build-Depends:     base >= 4 && < 5, monads-tf, QuickCheck, libgraph == 1.2
+  build-Depends:     base >= 4 && < 5, monads-tf, QuickCheck, libgraph == 1.3
   hs-source-dirs:    src
   main-is:           Test.hs
   other-modules:     IntendedSemantics
@@ -15,7 +15,7 @@ Executable Semantics-test
   ghc-prof-options:  -auto-all
 
 Executable Equivalence-test
-  build-Depends:     base >= 4 && < 5, monads-tf, QuickCheck, libgraph == 1.2,
+  build-Depends:     base >= 4 && < 5, monads-tf, QuickCheck, libgraph == 1.3,
                      test-framework, test-framework-hunit, HUnit, containers
   hs-source-dirs:    src
   main-is:           Equivalence.hs
