@@ -397,8 +397,9 @@ merge _ (LamEvent _ p) apps = IntermediateStmt p i r
         i           = head . sort . (map stmtUID) $ apps
         and acc app = acc ++ "; " ++ app
 
-merge t (AppEvent _ p) chds = case (length chds) of
-  0 -> error "merge: Application with neither result nor argument?"
+merge t (AppEvent appUID p) chds = case (length chds) of
+  0 -> -- error "merge: Application with neither result nor argument?"
+       IntermediateStmt p appUID (mkStmt "_" "_")
   1 -> let res = head chds
            r   = mkStmt "_" (stmtRepr res)
            i   = stmtUID  res
@@ -475,7 +476,11 @@ mkArcs cs = callArcs ++ pushArcs
         callArcs = foldl (\as [c1,c2,c3] -> (Arc c1 c2 $ CallDep 1) 
                                             : ((Arc c2 c3 $ CallDep 1) : as)) [] ts 
         ps = filter (\[c1,c2]    -> pushDependency c1 c2)    (permutationsOfLength 2 cs)
-        ts = filter (\[c1,c2,c3] -> callDependency c1 c2 c3) (permutationsOfLength 3 cs)
+        ts = filter f3 (permutationsOfLength 3 cs)
+
+        f3 [c1,c2,c3] = callDependency c1 c2 c3
+        f3 _          = False -- less than 3 statements
+
 
 arcsFrom :: CompStmt -> [CompStmt] -> [Arc CompStmt Dependency]
 arcsFrom src trc =  ((map (\tgt -> Arc src tgt PushDep)) . (filter isPushArc) $ trc)

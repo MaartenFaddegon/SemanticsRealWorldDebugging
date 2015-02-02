@@ -250,7 +250,7 @@ e5t = cc "caf"
 
 ------------------------------------------------------------------------------------------
 --
--- Example 6: After question by an anonymous reviewer from the 2nd round of PLDI
+-- Example 6: After initial questions by anonymous reviewers from PLDI
 --
 -- a)     let h = push "h" (\f -> let {fourty=fourty} f fourty)
 --            f = (\x -> x)
@@ -259,9 +259,78 @@ e5t = cc "caf"
 -- b)     let h = push "h" (\f x -> let {y=-40} x+f+y )
 --            fourty = 40
 --            f = h(fourty)
---        in  f {fourty}
+--        in  f fourty
+--
+-- c)     let f = push "f" \x. x+1
+--            g = push "g" \x. (f x)+(f x)
+--            o = 1
+--         in g o
+--
 
-e6ta = undefined
+e6ta = cc "caf"
+     $ T.Let (h, cc "h" (λ f (T.Let (fourty, (val 40)) (ap f fourty))))
+     $ T.Let (f, λ x (var x))
+     $ cc "main" (ap h f)
+     where f = "f"; h = "h"; fourty="fourty"; x="x"
+
+e6tb = cc "caf"
+     $ T.Let (h, cc "h" (λ2 f x (T.Let (y, (val (-40))) ((var x) + (var f) + (var y)))))
+     $ T.Let (fourty, val 40)
+     $ T.Let (f, ap h fourty)
+     $ cc "main" (ap f fourty)
+
+     where f = "f"; h = "h"; fourty="fourty"; x="x"; y="y"
+           (+) n m = T.Plus n m
+
+et6c = cc "caf"
+     $ T.Let (f, cc "f" (λ x (var x + var x)))
+     $ T.Let (g, cc "g" (λ x (ap f x + ap f x)))
+     $ T.Let (o, val 1)
+     $ cc "main" (ap g o)
+     where f = "f"; g = "g"; o="o"; x="x"; y="y"
+           (+) n m = T.Plus n m
+
+et6d = cc "caf"
+     $ T.Let (f, (λ x (ap' (cc "f" (λ y (var y + var y))) x)))
+     $ T.Let (g, (λ x (ap' (cc "g" (λ y (ap f y))) x)))
+     $ T.Let (o, val 1)
+     $ cc "main" (ap g o)
+     where f = "f"; g = "g"; o="o"; x="x"; y="y"
+           (+) n m = T.Plus n m
+------------------------------------------------------------------------------------------
+--
+-- Example 7: After final feedback from anonymous reviewers from PLDI
+--
+--        let constant = 21
+--            double   = push "double" \x   -> x + x
+--            lift     = push "lift"   \x f -> f x
+--            unlift   = push "unlift" \p   -> let f = \x -> x in p f
+--            g        = push "g" let j = \x -> double x
+--                                    p = lift j
+--                                in  \h -> push "g1" (h p)
+--            main     = push "main" let h \p -> (unlift p) constant
+--                                   in \x -> push "main1" (g h)
+--            o        = 1
+--        in main o
+
+et7 = cc "caf"
+    $ T.Let  (constant, val 21)
+    $ T.Let  (double, cc "double" (λ x (x + x)))  -- Should "g1" be part of the stack at this point?
+    $ T.Let  (lift,   cc "lift" (λ2 x f (ap f x)))
+    $ T.Let  (unlift, cc "unlift" (λ p (T.Let (f, (λ x (var x)))
+                                       {-in-} (ap f x))))
+    $ T.Let  (g,      cc "g" ( T.Let  (j, (λ x (ap double x)))
+                             $ T.Let  (p, ap lift j)
+                             $ {-in-} (λ h (cc "g1" (ap h p)))))
+    $ T.Let  (main,   cc "main" ( T.Let  (h, λ p (ap' (ap unlift p) constant))
+                                  {-in-} (λ x (cc "main1" (ap g h)))))
+    $ T.Let  (o, val 1)
+    $ {-in-} (ap main o)
+
+    where constant = "constant"; x = "x"; f = "f"; p = "p"; double = "double"
+          lift = "lift"; unlift = "unlift"; g = "g"; j = "j"; h = "h"
+          main = "main"; o = "o"
+          (+) n m = T.Plus (var n) (var m)
 
 ------------------------------------------------------------------------------------------
 
