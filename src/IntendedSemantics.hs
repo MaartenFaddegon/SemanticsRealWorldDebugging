@@ -403,8 +403,8 @@ merge _ (LamEvent _ p) apps = IntermediateStmt p i r s
         i = head . sort . (map stmtUID) $ apps
         and' acc app = acc ++ "; " ++ app
 
-merge _ (AppEvent _ p) chds = case (length chds) of
-  0 -> error "merge: Application with neither result nor argument?"
+merge _ (AppEvent appUID p) chds = case (length chds) of
+  0 -> IntermediateStmt p appUID Right "_ -> _"
   1 -> let res = head chds
            r   = stmtRepr res
            s   = "_ -> " ++ stmtRepr' res

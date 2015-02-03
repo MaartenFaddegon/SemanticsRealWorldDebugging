@@ -383,7 +383,7 @@ oldestUID = head . sort
 
 merge :: Bool -> Event -> [CompStmt] -> CompStmt
 
-merge _ (Root lbl stk i) []    = CompStmt lbl stk i "_"
+merge _ (Root lbl stk i) []    = CompStmt lbl stk i (lbl ++ " = _")
 merge _ (Root lbl stk _) [chd] = CompStmt lbl stk i (lbl ++ " " ++ r)
   where r = stmtRepr chd
         i = stmtUID  chd
@@ -398,8 +398,7 @@ merge _ (LamEvent _ p) apps = IntermediateStmt p i r
         and acc app = acc ++ "; " ++ app
 
 merge t (AppEvent appUID p) chds = case (length chds) of
-  0 -> -- error "merge: Application with neither result nor argument?"
-       IntermediateStmt p appUID (mkStmt "_" "_")
+  0 -> IntermediateStmt p appUID (mkStmt "_" "_")
   1 -> let res = head chds
            r   = mkStmt "_" (stmtRepr res)
            i   = stmtUID  res
