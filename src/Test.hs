@@ -111,15 +111,10 @@ when :: Bool -> Bool -> Bool
 when testb cond = if cond then testb else True
 
 sound :: Expr -> Property
-sound e = valid ==> (classify (trc == [])     "Trivial trace")
-          $         (classify (statFCC == []) "Trivial expression")
-          $         (classify (isWrong r)     "Reduces to 'Const Wrong'")
-          $         (classify (isRight r)     "Reduces to 'Const Right'")
-
-          (    -- If the reduct is Wrong we marked some cost centre(s) as faulty.
-               property (if (isWrong r) then (dynFCC /= []) else True)
-                
-               -- One of the cost-centres in the faulty node is actually faulty.
+sound e = valid ==> (    
+          -- If the reduct is Wrong we marked some cost centre(s) as faulty.
+          property (if (isWrong r) then (dynFCC /= []) else True)
+          -- One of the cost-centres in the faulty node is actually faulty.
           .&&. property (statFCC `anyElem` dynFCC)
           )
 
@@ -132,7 +127,7 @@ sound e = valid ==> (classify (trc == [])     "Trivial trace")
 
 main = quickCheckWith args sound
   where args = Args { replay          = Nothing
-                    , maxSuccess      = 5000  -- number of tests
+                    , maxSuccess      = 100000  -- number of tests
                     , maxDiscardRatio = 100
                     , maxSize         = 1000   -- max subexpressions
                     , chatty          = True
