@@ -2,7 +2,7 @@ module TraceSemantics where
 
 import Control.Monad.State
 import Data.Graph.Libgraph
-import Data.List (sort,partition,permutations)
+import Data.List (sort,partition,permutations,nub)
 import qualified Debug.Trace as Debug
 
 --------------------------------------------------------------------------------
@@ -184,7 +184,7 @@ reduce (ACC l e) = do
   stk <- gets stack
   doPush l
   uid <- getUniq
-  doTrace (Root l stk uid)
+  doTrace (RootEvent l stk uid)
   eval (Observed (Parent uid) e)
 
 reduce (Observed p e) = do
@@ -307,7 +307,7 @@ getFreshVar n = do
 type Trace = [Event]
 
 data Event
-  = Root
+  = RootEvent
     { eventLabel  :: Label
     , eventStack  :: Stack
     , eventUID    :: UID
@@ -361,7 +361,7 @@ doTrace rec = do
 
 mkStmts :: (Expr,Trace) -> (Expr,[CompStmt])
 mkStmts (reduct,trc) = (reduct,map (successors True chds) roots)
-  where isRoot (Root _ _ _) = True
+  where isRoot (RootEvent _ _ _) = True
         isRoot _            = False
         (roots,chds) = partition isRoot trc
 
@@ -369,11 +369,11 @@ successors :: Bool -> Trace -> Event -> CompStmt
 successors root trc rec = case rec of
         (AppEvent _ _) -> merge root rec $ (suc ArgOf) ++ (suc ResOf)
         (LamEvent _ _) -> merge root rec (suc Parent)
-        (Root l s _)   -> merge root rec (suc Parent)
+        (RootEvent l s _)   -> merge root rec (suc Parent)
 
   where suc con = map mkStmt $ filter (\chd -> eventParent chd == con (eventUID rec)) trc
         mkStmt (ConstEvent uid p repr) = case rec of
-          (Root _ _ _) -> IntermediateStmt p uid ("= " ++ repr)
+          (RootEvent _ _ _) -> IntermediateStmt p uid ("= " ++ repr)
           _            -> IntermediateStmt p uid repr
 	mkStmt chd                     = (successors root' trc chd)
 	root' = case rec of (AppEvent _ _) -> False; _ -> root
@@ -383,11 +383,11 @@ oldestUID = head . sort
 
 merge :: Bool -> Event -> [CompStmt] -> CompStmt
 
-merge _ (Root lbl stk i) []    = CompStmt lbl stk i (lbl ++ " = _")
-merge _ (Root lbl stk _) [chd] = CompStmt lbl stk i (lbl ++ " " ++ r)
+merge _ (RootEvent lbl stk i) []    = CompStmt lbl stk i (lbl ++ " = _")
+merge _ (RootEvent lbl stk _) [chd] = CompStmt lbl stk i (lbl ++ " " ++ r)
   where r = stmtRepr chd
         i = stmtUID  chd
-merge _ (Root lbl stk i) _     = error "merge: Root with multiple children?"
+merge _ (RootEvent lbl stk i) _     = error "merge: Root with multiple children?"
 
 merge _ (LamEvent i p) []   = IntermediateStmt p i "_"
 merge _ (LamEvent _ p) [a]  = IntermediateStmt p (stmtUID a) (stmtRepr a)
@@ -417,6 +417,8 @@ merge t (AppEvent appUID p) chds = case (length chds) of
 -- Debug
 
 data Dependency = PushDep | CallDep Int deriving (Eq,Show)
+data Vertex = RootVertex | Vertex [CompStmt] deriving (Eq)
+type CompGraph = Graph Vertex Dependency
 
 instance Ord Dependency where
   compare PushDep (CallDep _)     = LT
@@ -424,22 +426,22 @@ instance Ord Dependency where
   compare (CallDep n) (CallDep m) = compare n m
   compare PushDep PushDep         = EQ
 
-type CompGraph = Graph [CompStmt] Dependency
-
 mkGraph :: (Expr,[CompStmt]) -> (Expr,CompGraph)
-mkGraph (reduct,trc) = (reduct,mapGraph (\r->[r]) (mkGraph' trc))
+mkGraph (reduct,trc) = let (Graph _ vs as) = mapGraph mkVertex (mkGraph' trc)
+                           rs              = filter (\(Vertex [c]) -> stmtStack c == []) vs
+                           as'             = map (\r -> Arc RootVertex r PushDep) rs
+                       in (reduct, Graph RootVertex (RootVertex:vs) (as' ++ as))
 
 mkGraph' :: [CompStmt] -> Graph CompStmt Dependency
 mkGraph' trace
   | length trace < 1 = error "mkGraph: empty trace"
-  | length roots < 1 = error "mkGraph: no root"
-  | otherwise = Graph (head roots)
+  | otherwise = Graph (head trace) -- doesn't really matter, replaced above
                        trace
-                       (mkArcs trace)
+                       (nub $ mkArcs trace)
                        -- (nubMin $ foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
-  where roots = filter isRoot trace
-        isRoot CompStmt{stmtStack=s} = s == []
-        isRoot _                              = error "mkGraph': Leftover intermediate stmt?"
+
+mkVertex :: CompStmt -> Vertex
+mkVertex c = Vertex [c]
 
 nubMin :: (Eq a, Ord b) => [Arc a b] -> [Arc a b]
 nubMin l = nub' l []
@@ -538,11 +540,12 @@ disp = disp' (display shw)
   where shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
 
-showVertex :: [CompStmt] -> (String,String)
+showVertex :: Vertex -> (String,String)
 showVertex v = (showVertex' v, "")
 
-showVertex' :: [CompStmt] -> String
-showVertex' = (foldl (++) "") . (map showCompStmt)
+showVertex' :: Vertex -> String
+showVertex' RootVertex  = "Root"
+showVertex' (Vertex cs) = (foldl (++) "") . (map showCompStmt) $ cs
 
 showCompStmt :: CompStmt -> String
 showCompStmt (CompStmt l s i r) = r ++ " (with stack " ++ show s ++ ")"

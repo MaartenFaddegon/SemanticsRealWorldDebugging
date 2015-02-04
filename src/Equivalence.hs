@@ -302,33 +302,32 @@ et6d = cc "caf"
 -- Example 7: After final feedback from anonymous reviewers from PLDI
 --
 --        let constant = 21
---            double   = push "double" \x   -> x + x
---            lift     = push "lift"   \x f -> f x
---            unlift   = push "unlift" \p   -> let f = \x -> x in p f
---            g        = push "g" let j = \x -> double x
---                                    p = lift j
---                                in  \h -> push "g1" (h p)
---            main     = push "main" let h \p -> (unlift p) constant
---                                   in \x -> push "main1" (g h)
+--            double   = \x'    -> (push "double" \x   -> x + x) x'
+--            lift     = \x' f' -> (push "lift"   \x f -> f x) x' f'
+--            unlift   = \p'    -> (push "unlift" \p   -> let f = \x -> x in p f) p'
+--            g        = \h'     -> (push "g" let j = \x -> double x
+--                                                p = lift j
+--                                            in  \h -> push "g1" (h p)) h'
+--            main     = \x' -> push "main" let h \p -> (unlift p) constant
+--                                          in \x -> push "main1" (g h)) x'
 --            o        = 1
 --        in main o
 
-et7 = cc "caf"
-    $ T.Let  (constant, val 21)
-    $ T.Let  (double, cc "double" (λ x (x + x)))  -- Should "g1" be part of the stack at this point?
-    $ T.Let  (lift,   cc "lift" (λ2 x f (ap f x)))
-    $ T.Let  (unlift, cc "unlift" (λ p (T.Let (f, (λ x (var x)))
-                                       {-in-} (ap f x))))
-    $ T.Let  (g,      cc "g" ( T.Let  (j, (λ x (ap double x)))
-                             $ T.Let  (p, ap lift j)
-                             $ {-in-} (λ h (cc "g1" (ap h p)))))
-    $ T.Let  (main,   cc "main" ( T.Let  (h, λ p (ap' (ap unlift p) constant))
-                                  {-in-} (λ x (cc "main1" (ap g h)))))
+et7 = T.Let  (constant, val 21)
+    $ T.Let  (double, λ x'     $ ap'  (cc "double" (λ x (x + x))) x')
+    $ T.Let  (lift,   λ2 x' f' $ ap2' (cc "lift" (λ2 x f (ap f x))) x' f')
+    $ T.Let  (unlift, λ p'     $ ap'  (cc "unlift" (λ p (T.Let (f, (λ x (var x)))
+                                                  {-in-} (ap p f)))) p')
+    $ T.Let  (g,      λ h'     $ ap'  (cc "g" ( T.Let  (j, (λ x (ap double x)))
+                                              $ T.Let  (p, ap lift j)
+                                              $ {-in-} (λ h (cc "g1" (ap h p))))) h')
+    $ T.Let  (main,   λ h' $ ap' (cc "main" ( T.Let  (h, λ p (ap' (ap unlift p) constant))
+                                              {-in-} (λ x (cc "main1" (ap g h))))) h')
     $ T.Let  (o, val 1)
     $ {-in-} (ap main o)
 
-    where constant = "constant"; x = "x"; f = "f"; p = "p"; double = "double"
-          lift = "lift"; unlift = "unlift"; g = "g"; j = "j"; h = "h"
+    where constant = "constant"; x = "x"; x' = "x'"; f = "f"; f' = "f'"; p = "p"; p' = "p'" 
+          double = "double"; lift = "lift"; unlift = "unlift"; g = "g"; j = "j"; h = "h"; h' = "h'"
           main = "main"; o = "o"
           (+) n m = T.Plus (var n) (var m)
 
