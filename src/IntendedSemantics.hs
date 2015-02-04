@@ -3,7 +3,7 @@ module IntendedSemantics where
 import Control.Monad.State
 import Prelude hiding (Right)
 import Data.Graph.Libgraph
-import Data.List (sort,partition,permutations)
+import Data.List (sort,partition,permutations,nub)
 import GHC.Exts (sortWith)
 
 --------------------------------------------------------------------------------
@@ -185,7 +185,7 @@ reduce (CC l j e) = do
   stk <- gets stack
   doPush l
   uid <- getUniq
-  doTrace (Root l stk uid)
+  doTrace (RootEvent l stk uid)
   eval (Observed (Parent uid) j e)
 
 reduce (Observed p j e) = do
@@ -308,7 +308,7 @@ getFreshVar n = do
 type Trace = [Event]
 
 data Event
-  = Root
+  = RootEvent
     { eventLabel  :: Label
     , eventStack  :: Stack
     , eventUID    :: UID
@@ -364,7 +364,7 @@ doTrace rec = do
 
 mkStmts :: (Expr,Trace) -> (Expr,[CompStmt])
 mkStmts (reduct,trc) = (reduct,map (successors True chds) roots)
-  where isRoot (Root _ _ _) = True
+  where isRoot (RootEvent _ _ _) = True
         isRoot _            = False
         (roots,chds) = partition isRoot trc
 
@@ -372,7 +372,7 @@ successors :: Bool -> Trace -> Event -> CompStmt
 successors root trc rec = case rec of
         (AppEvent _ _) -> merge root rec $ (suc ArgOf) ++ (suc ResOf)
         (LamEvent _ _) -> merge root rec (suc Parent)
-        (Root _ _ _)   -> merge root rec (suc Parent)
+        (RootEvent _ _ _)   -> merge root rec (suc Parent)
 
   where suc con = map mkStmt $ filter (\chd -> eventParent chd == con (eventUID rec)) trc
         mkStmt (ConstEvent uid p repr) = IntermediateStmt p uid repr (show repr)
@@ -388,20 +388,20 @@ jand _     _     = Wrong
 
 merge :: Bool -> Event -> [CompStmt] -> CompStmt
 
-merge _ (Root lbl stk i) []    = CompStmt lbl stk i Right ""
-merge _ (Root lbl stk _) [chd] = CompStmt lbl stk i r s
+merge _ (RootEvent lbl stk i) []    = CompStmt lbl stk i Right ""
+merge _ (RootEvent lbl stk _) [chd] = CompStmt lbl stk i r s
   where r = stmtRepr chd
         s = stmtRepr' chd
         i = stmtUID  chd
-merge _ (Root lbl stk i) _     = error "merge: Root with multiple children?"
+merge _ (RootEvent lbl stk i) _     = error "merge: Root with multiple children?"
 
 merge _ (LamEvent i p) []   = IntermediateStmt p i Right ""
 merge _ (LamEvent _ p) apps = IntermediateStmt p i r s
   where r = foldl jand Right (map stmtRepr apps)
         (a:pps) = map stmtRepr' apps
-        s = (foldl and' ("{" ++ a) pps) ++ "}"
+        s = (foldl and ("{" ++ a) pps) ++ "}"
         i = head . sort . (map stmtUID) $ apps
-        and' acc app = acc ++ "; " ++ app
+        and acc app = acc ++ "; " ++ app
 
 merge _ (AppEvent appUID p) chds = case (length chds) of
   0 -> IntermediateStmt p appUID Right "_ -> _"
@@ -420,44 +420,24 @@ merge _ (AppEvent appUID p) chds = case (length chds) of
 --------------------------------------------------------------------------------
 -- Debug
 
-data Dependency = PushDep | CallDep Int deriving (Eq,Show)
-
-instance Ord Dependency where
-  compare PushDep (CallDep _)     = LT
-  compare (CallDep _) PushDep     = GT
-  compare (CallDep n) (CallDep m) = compare n m
-  compare PushDep PushDep         = EQ
-
-type CompGraph = Graph [CompStmt] Dependency
+data Vertex = RootVertex | Vertex [CompStmt] deriving (Eq,Ord,Show)
+type CompGraph = Graph Vertex ()
 
 mkGraph :: (Expr,[CompStmt]) -> (Expr,CompGraph)
-mkGraph (reduct,trc) = (reduct,mapGraph (\r->[r]) (mkGraph' trc))
+mkGraph (reduct,trc) = let (Graph _ vs as) = mapGraph mkVertex (mkGraph' trc)
+                           rs              = filter (\(Vertex [c]) -> stmtStack c == []) vs
+                           as'             = map (\r -> Arc RootVertex r ()) rs
+                       in (reduct, Graph RootVertex (RootVertex:vs) (as' ++ as))
 
-mkGraph' :: [CompStmt] -> Graph CompStmt Dependency
+mkGraph' :: [CompStmt] -> Graph CompStmt ()
 mkGraph' trace
   | length trace < 1 = error "mkGraph: empty trace"
-  | length roots < 1 = error "mkGraph: no root"
-  | otherwise = Graph (head roots)
+  | otherwise = Graph (head trace) -- doesn't really matter, replaced above
                        trace
-                       (mkArcs trace)
-                       -- (nubMin $ foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
-  where roots = filter isRoot trace
-        isRoot CompStmt{stmtStack=s} = s == []
-        isRoot _                              = error "mkGraph': Leftover intermediate stmt?"
+                       (nub $ mkArcs trace)
 
-nubMin :: (Eq a, Ord b) => [Arc a b] -> [Arc a b]
-nubMin l = nub' l []
-  where
-
-    nub' [] _           = []
-    nub' (x:xs) ls = let (sat,unsat) = partition (equiv x) ls
-                     in case sat of
-                        [] -> x : nub' xs (x:ls)
-                        _  -> nub' xs ((minimum' $ x:sat) : unsat )
-
-    minimum' as = (head as) { arc = minimum (map arc as) }
-
-    equiv (Arc v w _) (Arc x y _) = v == x && w == y
+mkVertex :: CompStmt -> Vertex
+mkVertex c = Vertex [c]
 
 -- Implementation of combinations function taken from http://stackoverflow.com/a/22577148/2424911
 combinations :: Int -> [a] -> [[a]]
@@ -475,26 +455,25 @@ permutationsOfLength x ys
   | length ys < x = []
   | otherwise     = (foldl (++) []) . (map permutations) . (combinations x) $ ys
 
-mkArcs :: [CompStmt] -> [Arc CompStmt Dependency]
+mkArcs :: [CompStmt] -> [Arc CompStmt ()]
 mkArcs cs = callArcs ++ pushArcs
-  where pushArcs = map (\[c1,c2]    -> Arc c1 c2 PushDep) ps 
-        callArcs = foldl (\as [c1,c2,c3] -> (Arc c1 c2 $ CallDep 1) 
-                                            : ((Arc c2 c3 $ CallDep 1) : as)) [] ts 
-        ps = filter (\[c1,c2]    -> pushDependency c1 c2)    (permutationsOfLength 2 cs)
-        ts = filter (\[c1,c2,c3] -> callDependency c1 c2 c3) (permutationsOfLength 3 cs)
+  where pushArcs = map (\[c1,c2]    -> Arc c1 c2 ()) ps 
+        callArcs = foldl (\as [c1,c2,c3] -> (Arc c1 c2 ()) 
+                                            : ((Arc c2 c3 ()) : as)) [] ts 
+        ps = filter (\[c1,c2] -> pushDependency c1 c2) (permutationsOfLength 2 cs)
+        ts = filter f3 (permutationsOfLength 3 cs)
 
-arcsFrom :: CompStmt -> [CompStmt] -> [Arc CompStmt Dependency]
-arcsFrom src trc 
-  =  ((map (\tgt -> Arc src tgt PushDep)) . (filter isPushArc) $ trc)
-  ++ ((map (\tgt -> Arc src tgt (CallDep 1))) . (filter isCall1Arc) $ trc)
-  -- MF TODO: do we need level-2 arcs?
-  -- ++ ((map (\tgt -> Arc src tgt (CallDep 2))) . (filter isCall2Arc) $ trc)
-                 
+        f3 [c1,c2,c3] = callDependency c1 c2 c3
+        f3 _          = False -- less than 3 statements
+
+
+arcsFrom :: CompStmt -> [CompStmt] -> [Arc CompStmt ()]
+arcsFrom src trc =  ((map (\tgt -> Arc src tgt ())) . (filter isPushArc) $ trc)
+                 ++ ((map (\tgt -> Arc src tgt ())) . (filter isCall1Arc) $ trc)
 
   where isPushArc = pushDependency src
         
         isCall1Arc = anyOf $ map (flip callDependency src) trc
-                    -- anyOf $ map (callDependency src) trc
 
         isCall2Arc = anyOf $  apmap (map (callDependency2 src) trc) trc
                            ++ apmap (map (callDependency2' src) trc) trc
@@ -524,21 +503,23 @@ callDependency2' pApp1 pApp2 pLam c = call pApp (nextStack pLam) == stmtStack c
   where pApp = call (nextStack pApp1) (nextStack pApp2)
 
 --------------------------------------------------------------------------------
--- Examples.
+-- Evaluate and display.
 
-findFaulty' :: CompGraph -> [[CompStmt]]
-findFaulty' = findFaulty wrongCC cat
+findFaulty' :: CompGraph -> [Vertex]
+findFaulty' = findFaulty judgeVertex cat
 
-cat ws = foldl (++) [] ws
+cat :: [Vertex] -> Vertex
+cat = Vertex . (foldl (++) []) . (map unpack)
+  where unpack RootVertex  = error "Attempt to merge RootVertex."
+        unpack (Vertex cs) = cs
 
--- wrongCC = foldl (\w r -> case stmtRepr r of Wrong -> True; _ -> w) False
-wrongCC :: [CompStmt] -> Judgement
-wrongCC = foldl (\j v -> j & (stmtRepr v)) Right
+judgeVertex :: Vertex -> Judgement
+judgeVertex RootVertex  = Right
+judgeVertex (Vertex cs) = foldl (\j v -> j & (stmtRepr v)) Right cs
 
   where (&) :: Judgement -> Judgement -> Judgement
         Right & Right = Right
         _ & _         = Wrong
-
 
 debug :: Expr -> IO ()
 debug redex = do
@@ -550,10 +531,10 @@ debug' redex = do
   let (reduct,compgraph) = tracedEval redex
   print (findFaulty' compgraph)
 
-oldest :: [[CompStmt]] -> [[CompStmt]]
+oldest :: [Vertex] -> [Vertex]
 oldest [] = []
 oldest rs = (:[]) . head . (sortWith getUID) $ rs
-  where getUID = head . sort . (map stmtUID)
+  where getUID (Vertex cs) = head . sort . (map stmtUID) $ cs
 
 tracedEval :: Expr -> (Expr,CompGraph)
 tracedEval = mkGraph . mkStmts . evaluate
@@ -563,6 +544,9 @@ dispTxt = disp' (putStrLn . shw)
   where shw :: CompGraph -> String
         shw g = "\nComputation statements:\n" ++ unlines (map showVertex' $ vertices g)
 
+getLabels :: [Vertex] -> [[Label]]
+getLabels = map $ \(Vertex cs) -> (map stmtLabel) cs
+
 -- Requires Imagemagick to be installed.
 disp :: Expr -> IO ()
 disp = disp' (display shw)
@@ -570,11 +554,11 @@ disp = disp' (display shw)
         shw g = showWith g showVertex showArc
 
 
-showVertex :: [CompStmt] -> (String,String)
+showVertex :: Vertex -> (String,String)
 showVertex v = (showVertex' v, "")
 
-showVertex' :: [CompStmt] -> String
-showVertex' = (foldl (++) "") . (map showCompStmt)
+showVertex' :: Vertex -> String
+showVertex' (Vertex cs) = (foldl (++) "") . (map showCompStmt) $ cs
 
 showCompStmt :: CompStmt -> String
 showCompStmt rec = stmtLabel rec ++ " = " ++ show (stmtRepr rec) 

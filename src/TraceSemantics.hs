@@ -416,46 +416,24 @@ merge t (AppEvent appUID p) chds = case (length chds) of
 --------------------------------------------------------------------------------
 -- Debug
 
-data Dependency = PushDep | CallDep Int deriving (Eq,Show)
 data Vertex = RootVertex | Vertex [CompStmt] deriving (Eq)
-type CompGraph = Graph Vertex Dependency
-
-instance Ord Dependency where
-  compare PushDep (CallDep _)     = LT
-  compare (CallDep _) PushDep     = GT
-  compare (CallDep n) (CallDep m) = compare n m
-  compare PushDep PushDep         = EQ
+type CompGraph = Graph Vertex ()
 
 mkGraph :: (Expr,[CompStmt]) -> (Expr,CompGraph)
 mkGraph (reduct,trc) = let (Graph _ vs as) = mapGraph mkVertex (mkGraph' trc)
                            rs              = filter (\(Vertex [c]) -> stmtStack c == []) vs
-                           as'             = map (\r -> Arc RootVertex r PushDep) rs
+                           as'             = map (\r -> Arc RootVertex r ()) rs
                        in (reduct, Graph RootVertex (RootVertex:vs) (as' ++ as))
 
-mkGraph' :: [CompStmt] -> Graph CompStmt Dependency
+mkGraph' :: [CompStmt] -> Graph CompStmt ()
 mkGraph' trace
   | length trace < 1 = error "mkGraph: empty trace"
   | otherwise = Graph (head trace) -- doesn't really matter, replaced above
                        trace
                        (nub $ mkArcs trace)
-                       -- (nubMin $ foldr (\r as -> as ++ (arcsFrom r trace)) [] trace)
 
 mkVertex :: CompStmt -> Vertex
 mkVertex c = Vertex [c]
-
-nubMin :: (Eq a, Ord b) => [Arc a b] -> [Arc a b]
-nubMin l = nub' l []
-  where
-
-    nub' [] _           = []
-    nub' (x:xs) ls = let (sat,unsat) = partition (equiv x) ls
-                     in case sat of
-                        [] -> x : nub' xs (x:ls)
-                        _  -> nub' xs ((minimum' $ x:sat) : unsat )
-
-    minimum' as = (head as) { arc = minimum (map arc as) }
-
-    equiv (Arc v w _) (Arc x y _) = v == x && w == y
 
 -- Implementation of combinations function taken from http://stackoverflow.com/a/22577148/2424911
 combinations :: Int -> [a] -> [[a]]
@@ -471,11 +449,11 @@ combinations k xs = combinations' (length xs) k xs
 permutationsOfLength :: Int -> [a] -> [[a]]
 permutationsOfLength x = (foldl (++) []) . (map permutations) . (combinations x)
 
-mkArcs :: [CompStmt] -> [Arc CompStmt Dependency]
+mkArcs :: [CompStmt] -> [Arc CompStmt ()]
 mkArcs cs = callArcs ++ pushArcs
-  where pushArcs = map (\[c1,c2]    -> Arc c1 c2 PushDep) ps 
-        callArcs = foldl (\as [c1,c2,c3] -> (Arc c1 c2 $ CallDep 1) 
-                                            : ((Arc c2 c3 $ CallDep 1) : as)) [] ts 
+  where pushArcs = map (\[c1,c2]    -> Arc c1 c2 ()) ps 
+        callArcs = foldl (\as [c1,c2,c3] -> (Arc c1 c2 ()) 
+                                            : ((Arc c2 c3 ()) : as)) [] ts 
         ps = filter (\[c1,c2]    -> pushDependency c1 c2)    (permutationsOfLength 2 cs)
         ts = filter f3 (permutationsOfLength 3 cs)
 
@@ -483,18 +461,13 @@ mkArcs cs = callArcs ++ pushArcs
         f3 _          = False -- less than 3 statements
 
 
-arcsFrom :: CompStmt -> [CompStmt] -> [Arc CompStmt Dependency]
-arcsFrom src trc =  ((map (\tgt -> Arc src tgt PushDep)) . (filter isPushArc) $ trc)
-                 ++ ((map (\tgt -> Arc src tgt (CallDep 1))) . (filter isCall1Arc) $ trc)
-
-                 -- MF TODO: do we need level-2 arcs?
-                 -- ++ ((map (\tgt -> Arc src tgt (CallDep 2))) . (filter isCall2Arc) $ trc)
-                 
+arcsFrom :: CompStmt -> [CompStmt] -> [Arc CompStmt ()]
+arcsFrom src trc =  ((map (\tgt -> Arc src tgt ())) . (filter isPushArc) $ trc)
+                 ++ ((map (\tgt -> Arc src tgt ())) . (filter isCall1Arc) $ trc)
 
   where isPushArc = pushDependency src
         
         isCall1Arc = anyOf $ map (flip callDependency src) trc
-                     -- anyOf $ map (callDependency src) trc
 
         isCall2Arc = anyOf $  apmap (map (callDependency2 src) trc) trc
                            ++ apmap (map (callDependency2' src) trc) trc
@@ -524,7 +497,7 @@ callDependency2' pApp1 pApp2 pLam c = call pApp (nextStack pLam) == stmtStack c
   where pApp = call (nextStack pApp1) (nextStack pApp2)
 
 --------------------------------------------------------------------------------
--- Examples.
+-- Evaluate and display.
 
 tracedEval :: Expr -> (Expr,CompGraph)
 tracedEval = mkGraph . mkStmts . evaluate
@@ -553,6 +526,7 @@ showArc (Arc _ _ dep)  = show dep
 
 disp' f expr = do
   putStrLn (messages ++ strc)
+  -- Uncomment the next line to write all reduction steps to file (for off-line analysis).
   -- writeFile "log" (messages ++ strc)
   f . snd . mkGraph . mkStmts $ (reduct,trc)
   where (reduct,trc,messages) = evaluate' expr

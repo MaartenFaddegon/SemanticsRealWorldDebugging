@@ -8,14 +8,9 @@ import Data.Graph.Libgraph
 --------------------------------------------------------------------------------
 -- Algorithmic debugging from a trace
 
--- faultyNodes :: Expr -> [[Label]]
--- faultyNodes = getLabels . oldest . findFaulty' . snd . mkGraph . mkCompStmts . evaluate
-
 faultyNodes :: [CompStmt] -> [[Label]]
 faultyNodes trc = getLabels . oldest . findFaulty' . snd . mkGraph $ (Const Right, trc)
 
-getLabels :: [[CompStmt]] -> [[Label]]
-getLabels = map (map stmtLabel)
 
 --------------------------------------------------------------------------------
 -- List of faulty expressions (static analysis)

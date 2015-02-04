@@ -52,8 +52,7 @@ judge js = map judgeStmt
 -- label(s) of cost centre's whose expressions are identified as faulty.
 
 debug :: [I.CompStmt] -> [[Label]]
-debug trc = getLabels . I.oldest . I.findFaulty' . snd . I.mkGraph $ (I.Const Right, trc)
-  where getLabels = map (map I.stmtLabel)
+debug trc = I.getLabels . I.oldest . I.findFaulty' . snd . I.mkGraph $ (I.Const Right, trc)
 
 -- Now we are ready to find faults in a TraceSemantic expression, using
 -- a list of computation statement representations and their judgement.
