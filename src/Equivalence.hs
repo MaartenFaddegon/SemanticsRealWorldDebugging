@@ -289,8 +289,7 @@ et6c = cc "caf"
      where f = "f"; g = "g"; o="o"; x="x"; y="y"
            (+) n m = T.Plus n m
 
-et6d = cc "caf"
-     $ T.Let (f, (λ x (ap' (cc "f" (λ y (var y + var y))) x)))
+et6d = T.Let (f, (λ x (ap' (cc "f" (λ y (var y + var y))) x)))
      $ T.Let (g, (λ x (ap' (cc "g" (λ y (ap f y))) x)))
      $ T.Let (o, val 1)
      $ cc "main" (ap g o)

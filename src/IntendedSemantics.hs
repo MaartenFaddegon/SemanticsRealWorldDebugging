@@ -564,7 +564,7 @@ showCompStmt :: CompStmt -> String
 showCompStmt rec = stmtLabel rec ++ " = " ++ show (stmtRepr rec) 
                    ++ " (with stack " ++ show (stmtStack rec) ++ ")\n"
                    ++ "from " ++ stmtRepr' rec
-showArc (Arc _ _ dep)  = show dep
+showArc _ = ""
 
 disp' f expr = do
   putStrLn (messages ++ strc)

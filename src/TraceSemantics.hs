@@ -522,7 +522,8 @@ showVertex' (Vertex cs) = (foldl (++) "") . (map showCompStmt) $ cs
 
 showCompStmt :: CompStmt -> String
 showCompStmt (CompStmt l s i r) = r ++ " (with stack " ++ show s ++ ")"
-showArc (Arc _ _ dep)  = show dep
+
+showArc _  = ""
 
 disp' f expr = do
   putStrLn (messages ++ strc)
