@@ -389,11 +389,10 @@ jand _     _     = Wrong
 merge :: Bool -> Event -> [CompStmt] -> CompStmt
 
 merge _ (RootEvent lbl stk i) []    = CompStmt lbl stk i Right ""
-merge _ (RootEvent lbl stk _) [chd] = CompStmt lbl stk i r s
+merge _ (RootEvent lbl stk _) (chd:_) = CompStmt lbl stk i r s
   where r = stmtRepr chd
         s = stmtRepr' chd
         i = stmtUID  chd
-merge _ (RootEvent lbl stk i) _     = error "merge: Root with multiple children?"
 
 merge _ (LamEvent i p) []   = IntermediateStmt p i Right ""
 merge _ (LamEvent _ p) apps = IntermediateStmt p i r s
@@ -465,24 +464,6 @@ mkArcs cs = callArcs ++ pushArcs
 
         f3 [c1,c2,c3] = callDependency c1 c2 c3
         f3 _          = False -- less than 3 statements
-
-
-arcsFrom :: CompStmt -> [CompStmt] -> [Arc CompStmt ()]
-arcsFrom src trc =  ((map (\tgt -> Arc src tgt ())) . (filter isPushArc) $ trc)
-                 ++ ((map (\tgt -> Arc src tgt ())) . (filter isCall1Arc) $ trc)
-
-  where isPushArc = pushDependency src
-        
-        isCall1Arc = anyOf $ map (flip callDependency src) trc
-
-        isCall2Arc = anyOf $  apmap (map (callDependency2 src) trc) trc
-                           ++ apmap (map (callDependency2' src) trc) trc
-
-        anyOf :: [a->Bool] -> a -> Bool
-        anyOf ps x = or (map (\p -> p x) ps)
-
-        apmap :: [a->b] -> [a] -> [b]
-        apmap fs xs = foldl (\acc f -> acc ++ (map f xs)) [] fs
 
 nextStack :: CompStmt -> Stack
 nextStack rec = push (stmtLabel rec) (stmtStack rec)
