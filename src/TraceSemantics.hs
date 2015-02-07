@@ -8,7 +8,7 @@ import qualified Debug.Trace as Debug
 --------------------------------------------------------------------------------
 -- Expressions
 
-data Expr = ACC        Label Expr
+data Expr = CC        Label Expr
           | Observed   Parent Expr
           | FunObs     Name Name Parent Expr
           | Const      Int
@@ -87,8 +87,8 @@ lookupHeap :: Name -> State Context (Stack,Expr)
 lookupHeap x = do 
   me <- fmap (lookup x . heap) get
   case me of
-    Nothing -> return ([],Exception ("Lookup '" ++ x ++ "' failed"))
-    Just (stk,e) -> return (stk,e)
+    Just (stk,Lambda y e) -> return (stk,Lambda y e)
+    _                     -> return ([],Exception ("Lookup '" ++ x ++ "' failed"))
 
 --------------------------------------------------------------------------------
 -- Stack handling: push and call.
@@ -180,7 +180,7 @@ reduce (Var x) = do
                         fresh e
      _            -> do fresh e
 
-reduce (ACC l e) = do
+reduce (CC l e) = do
   stk <- gets stack
   doPush l
   uid <- getUniq
@@ -240,7 +240,7 @@ subst n m (Lambda n' e)       = Lambda (sub n m n') (subst n m e)
 subst n m (Apply e n')        = Apply (subst n m e) (sub n m n')
 subst n m (Var n')            = Var (sub n m n')
 subst n m (Let (n',e1) e2)    = Let ((sub n m n'),(subst n m e1)) (subst n m e2)
-subst n m (ACC l e)           = ACC l (subst n m e)
+subst n m (CC l e)           = CC l (subst n m e)
 subst n m (Observed p e)      = Observed p (subst n m e)
 subst n m (FunObs n' n'' p e) = FunObs (sub n m n') (sub n m n'') p (subst n m e)
 subst n m (Plus e1 e2)        = Plus (subst n m e1) (subst n m e2)
@@ -274,9 +274,9 @@ fresh (Apply f x) = do
 fresh (Var x) =
   return (Var x)
 
-fresh (ACC l e) = do
+fresh (CC l e) = do
   e' <- fresh e
-  return (ACC l e')
+  return (CC l e')
 
 
 fresh (Observed p e) = do

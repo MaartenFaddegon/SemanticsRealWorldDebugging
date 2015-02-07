@@ -88,8 +88,8 @@ lookupHeap :: Name -> State Context (Stack,Expr)
 lookupHeap x = do 
   me <- fmap (lookup x . heap) get
   case me of
-    Nothing -> return ([],Exception ("Lookup '" ++ x ++ "' failed"))
-    Just (stk,e) -> return (stk,e)
+    Just (stk,Lambda y e) -> return (stk,Lambda y e)
+    _                     -> return ([],Exception ("Lookup '" ++ x ++ "' failed"))
 
 --------------------------------------------------------------------------------
 -- Stack handling: push and call.
@@ -534,17 +534,22 @@ disp = disp' (display shw)
   where shw :: CompGraph -> String
         shw g = showWith g showVertex showArc
 
+dispCollapsed :: Expr -> IO ()
+dispCollapsed = disp' (display shw)
+  where shw :: CompGraph -> String
+        shw g = showWith ((collapse cat) . remove $ g) showVertex showArc
 
 showVertex :: Vertex -> (String,String)
 showVertex v = (showVertex' v, "")
 
 showVertex' :: Vertex -> String
 showVertex' (Vertex cs) = (foldl (++) "") . (map showCompStmt) $ cs
+showVertex' RootVertex  = "RootVertex"
 
 showCompStmt :: CompStmt -> String
 showCompStmt rec = stmtLabel rec ++ " = " ++ show (stmtRepr rec) 
-                   ++ " (with stack " ++ show (stmtStack rec) ++ ")\n"
-                   ++ "from " ++ stmtRepr' rec
+                   ++ " (with stack " ++ show (stmtStack rec) ++ ")"
+                   ++ "\nfrom " ++ stmtRepr' rec
 showArc _ = ""
 
 disp' f expr = do
