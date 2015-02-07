@@ -28,7 +28,7 @@ translateTI fs (T.Lambda n e)    = I.Lambda n (translateTI fs e)
 translateTI fs (T.Apply e n)     = I.Apply (translateTI fs e) n
 translateTI fs (T.Var n)         = I.Var n
 translateTI fs (T.Let (n,e1) e2) = I.Let (n,translateTI fs e1) (translateTI fs e2)
-translateTI fs (T.ACC l e)       
+translateTI fs (T.CC l e)       
                    | l `elem` fs = I.CC l Wrong (translateTI fs e)
                    | otherwise   = I.CC l Right (translateTI fs e)
 translateTI fs (T.Plus e1 e2)    = I.Plus (translateTI fs e1) (translateTI fs e2)
@@ -93,7 +93,7 @@ ap3 fn a1 a2 a3 = T.Apply (ap2 fn a1 a2) a3
 ap' f a = T.Apply f a
 ap2' f a1 a2 = T.Apply (ap' f a1) a2
 ap3' f a1 a2 a3 = T.Apply (ap2' f a1 a2) a3
-cc = T.ACC
+cc = T.CC
 var = T.Var
 val = T.Const
 
@@ -126,10 +126,10 @@ e0t = T.Let (dbl, λ x' (ap' (cc "dbl" (λ x (var x))) x'))
 --      Case b: fault in "h"
 
 e1t = T.Let ("h", T.Lambda "f'" (T.Apply 
-              (T.ACC "h" $ T.Lambda "f" (T.Lambda "x"(T.Apply (T.Var "f") "x"))) "f'"))
-    $ T.Let ("g", (T.Lambda "x" (T.Apply (T.ACC "g" (T.Lambda "y" (T.Var "y"))) "x")))
+              (T.CC "h" $ T.Lambda "f" (T.Lambda "x"(T.Apply (T.Var "f") "x"))) "f'"))
+    $ T.Let ("g", (T.Lambda "x" (T.Apply (T.CC "g" (T.Lambda "y" (T.Var "y"))) "x")))
     $ T.Let ("i", (T.Const 8)) 
-    $ T.ACC "main" 
+    $ T.CC "main" 
     $ T.Apply (T.Apply (T.Var "h") "g") "i"
 
 test1a = equivalent e1t ["g"] 
@@ -157,10 +157,10 @@ test1b = equivalent e1t ["h"]
 --      Case b: fault in "g"
 --      Case c: fault in "main"
 
-e2t = T.Let ("f", T.Lambda "x" (T.Apply (T.ACC "f" (T.Lambda "y" (T.Var "y"))) "x"))
-    $ T.Let ("g", T.Lambda "x" (T.Apply (T.ACC "g" (T.Lambda "y" (T.Apply (T.Var "f") "y"))) "x"))
+e2t = T.Let ("f", T.Lambda "x" (T.Apply (T.CC "f" (T.Lambda "y" (T.Var "y"))) "x"))
+    $ T.Let ("g", T.Lambda "x" (T.Apply (T.CC "g" (T.Lambda "y" (T.Apply (T.Var "f") "y"))) "x"))
     $ T.Let ("i", T.Const 3)
-    $ T.ACC "main" (T.Apply (T.Var "g") "i")
+    $ T.CC "main" (T.Apply (T.Var "g") "i")
 
 test2a = equivalent e2t ["f"] 
                 [ "main = 3" ? Wrong
@@ -188,17 +188,17 @@ test2c = equivalent e2t ["main"]
 --                ys = ☺
 --            in  CC "main" isort ys
 
-e3t = T.Let (foldr1, λ3 f' z' xs' (ap3' (T.ACC "foldr"  (λ3 f z xs (ap2 f z xs))
+e3t = T.Let (foldr1, λ3 f' z' xs' (ap3' (T.CC "foldr"  (λ3 f z xs (ap2 f z xs))
                                         ) f' z' xs'))
-    $ T.Let (foldr2, λ3 f' z' xs' (ap3' (T.ACC "foldr"  (λ3 f z xs (T.Let (xs'',(ap3 foldr1 f z xs))
+    $ T.Let (foldr2, λ3 f' z' xs' (ap3' (T.CC "foldr"  (λ3 f z xs (T.Let (xs'',(ap3 foldr1 f z xs))
                                                                           (ap2 f xs xs'')))
                                         ) f' z' xs'))
-    $ T.Let (insert, λ2 x' xs'    (ap2' (T.ACC "insert" (λ2 x xs   (x + xs))
+    $ T.Let (insert, λ2 x' xs'    (ap2' (T.CC "insert" (λ2 x xs   (x + xs))
                                         ) x' xs'))
-    $ T.Let (isort,  λ xs'        (ap'  (T.ACC "isort"  (λ xs      (ap3 foldr2 insert xs xs))
+    $ T.Let (isort,  λ xs'        (ap'  (T.CC "isort"  (λ xs      (ap3 foldr2 insert xs xs))
                                         ) xs'))
     $ T.Let (ys,     T.Const 7)
-    $ T.ACC "main" (ap isort ys)
+    $ T.CC "main" (ap isort ys)
 
   where f = "f"; f'="f'"; z="z"; z'="z'"; x="x"; x'="x'"; xs="xs"; xs'="xs'"; xs''="xs''"; ys="ys"
         foldr1="foldr1"; foldr2="foldr2"; insert="insert"; isort="isort"
