@@ -131,7 +131,7 @@ sound_prop e = let (r,isSound) = sound $ CC "root" Right (uniqueLabels e)
 
 main = quickCheckWith args sound_prop
   where args = Args { replay          = Nothing
-                    , maxSuccess      = 10000       -- number of tests
+                    , maxSuccess      = 100000    -- number of tests
                     , maxDiscardRatio = 100000000
                     , maxSize         = 30        -- max subexpressions
                     , chatty          = True
