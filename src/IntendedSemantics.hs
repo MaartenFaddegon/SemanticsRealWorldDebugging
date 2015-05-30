@@ -88,8 +88,8 @@ lookupHeap :: Name -> State Context (Stack,Expr)
 lookupHeap x = do 
   me <- fmap (lookup x . heap) get
   case me of
-    Just (stk,Lambda y e) -> return (stk,Lambda y e)
-    _                     -> return ([],Exception ("Lookup '" ++ x ++ "' failed"))
+    Nothing -> return ([],Exception ("Lookup '" ++ x ++ "' failed"))
+    Just (stk,e) -> return (stk,e)
 
 --------------------------------------------------------------------------------
 -- Stack handling: push and call.
@@ -376,11 +376,8 @@ successors root trc rec = case rec of
 
   where suc con = map mkStmt $ filter (\chd -> eventParent chd == con (eventUID rec)) trc
         mkStmt (ConstEvent uid p repr) = IntermediateStmt p uid repr (show repr)
-	mkStmt chd                     = (successors root' trc chd)
-	root' = case rec of (AppEvent _ _) -> False; _ -> root
-
-oldestUID :: [UID] -> UID
-oldestUID = head . sort
+        mkStmt chd                     = (successors root' trc chd)
+        root' = case rec of (AppEvent _ _) -> False; _ -> root
 
 jand :: Judgement -> Judgement -> Judgement
 jand Right Right = Right
@@ -456,10 +453,11 @@ permutationsOfLength x ys
 
 mkArcs :: [CompStmt] -> [Arc CompStmt ()]
 mkArcs cs = callArcs ++ pushArcs
-  where pushArcs = map (\[c1,c2]    -> Arc c1 c2 ()) ps 
+  where pushArcs = map (\[c1,c2] -> Arc c1 c2 ()) ps 
+        ps = filter (\[c1,c2] -> pushDependency c1 c2) (permutationsOfLength 2 cs)
+
         callArcs = foldl (\as [c1,c2,c3] -> (Arc c1 c2 ()) 
                                             : ((Arc c2 c3 ()) : as)) [] ts 
-        ps = filter (\[c1,c2] -> pushDependency c1 c2) (permutationsOfLength 2 cs)
         ts = filter f3 (permutationsOfLength 3 cs)
 
         f3 [c1,c2,c3] = callDependency c1 c2 c3
@@ -505,17 +503,12 @@ judgeVertex (Vertex cs) = foldl (\j v -> j & (stmtRepr v)) Right cs
 debug :: Expr -> IO ()
 debug redex = do
   let (reduct,compgraph) = tracedEval redex
-  print (oldest $ findFaulty' compgraph)
+  print (findFaulty' compgraph)
 
 debug' :: Expr -> IO ()
 debug' redex = do
   let (reduct,compgraph) = tracedEval redex
   print (findFaulty' compgraph)
-
-oldest :: [Vertex] -> [Vertex]
-oldest [] = []
-oldest rs = (:[]) . head . (sortWith getUID) $ rs
-  where getUID (Vertex cs) = head . sort . (map stmtUID) $ cs
 
 tracedEval :: Expr -> (Expr,CompGraph)
 tracedEval = mkGraph . mkStmts . evaluate

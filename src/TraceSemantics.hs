@@ -87,8 +87,8 @@ lookupHeap :: Name -> State Context (Stack,Expr)
 lookupHeap x = do 
   me <- fmap (lookup x . heap) get
   case me of
-    Just (stk,Lambda y e) -> return (stk,Lambda y e)
-    _                     -> return ([],Exception ("Lookup '" ++ x ++ "' failed"))
+    Nothing -> return ([],Exception ("Lookup '" ++ x ++ "' failed"))
+    Just (stk,e) -> return (stk,e)
 
 --------------------------------------------------------------------------------
 -- Stack handling: push and call.
@@ -375,11 +375,8 @@ successors root trc rec = case rec of
         mkStmt (ConstEvent uid p repr) = case rec of
           (RootEvent _ _ _) -> IntermediateStmt p uid ("= " ++ repr)
           _            -> IntermediateStmt p uid repr
-	mkStmt chd                     = (successors root' trc chd)
-	root' = case rec of (AppEvent _ _) -> False; _ -> root
-
-oldestUID :: [UID] -> UID
-oldestUID = head . sort
+        mkStmt chd                     = (successors root' trc chd)
+        root' = case rec of (AppEvent _ _) -> False; _ -> root
 
 merge :: Bool -> Event -> [CompStmt] -> CompStmt
 

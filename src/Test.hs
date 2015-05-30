@@ -1,4 +1,5 @@
 import IntendedSemantics
+import FreeVar
 import Control.Monad.State(liftM,liftM2,liftM3,liftM4)
 import Prelude hiding (Right)
 import Test.QuickCheck
@@ -9,7 +10,7 @@ import Data.Graph.Libgraph
 -- Algorithmic debugging from a trace
 
 faultyNodes :: [CompStmt] -> [[Label]]
-faultyNodes trc = getLabels . oldest . findFaulty' . snd . mkGraph $ (Const Right, trc)
+faultyNodes trc = getLabels . findFaulty' . snd . mkGraph $ (Const Right, trc)
 
 wrongNodes :: [CompStmt] -> [Label]
 wrongNodes = (map stmtLabel) . (filter (\c -> case stmtRepr c of Wrong -> True; _ -> False))
@@ -123,13 +124,31 @@ sound e = (r, -- If debugging found a faulty cost centre, we did mark some cost 
 
 sound_prop :: Expr -> Property
 sound_prop e = let (r,isSound) = sound $ CC "root" Right (uniqueLabels e)
-                   isValid     = case r of (Const _) -> True; _ -> False
+                   evalsToCons = case r          of (Const _) -> True; _ -> False
+                   noFree      = case freeVars e of NoFreeVar -> True; _ -> False
+                   isValid     = evalsToCons && noFree
                in  isValid ==> property isSound
 
 main = quickCheckWith args sound_prop
   where args = Args { replay          = Nothing
-                    , maxSuccess      = 100000  -- number of tests
-                    , maxDiscardRatio = 100
-                    , maxSize         = 1000   -- max subexpressions
+                    , maxSuccess      = 10000       -- number of tests
+                    , maxDiscardRatio = 100000000
+                    , maxSize         = 30        -- max subexpressions
                     , chatty          = True
                     }
+
+ex_app1 = Let ("app", Lambda "g" $ Lambda "y" $ Apply (Apply (CC "app" Right 
+                      $ Lambda "f" $ Lambda "x" $ Apply (Var "f") "x") "g" ) "y")
+        $ Let ("f", Lambda "y" $ Apply (CC "f" Wrong $ Lambda "x" $ Var "x") "y")
+        $ Let ("main", Lambda "x" $ (Apply (Apply (Var "app") "f") "x"))
+        $ Let ("k", Const Right)
+        $ Apply (Var "main") "k"
+
+-- as ex_app1 but with main also observed
+ex_app2 = Let ("app", Lambda "g" $ Lambda "y" $ Apply (Apply (CC "app" Right 
+                     $ Lambda "f" $ Lambda "x" $ Apply (Var "f") "x") "g" ) "y")
+       $ Let ("f", Lambda "y" $ Apply (CC "f" Wrong $ Lambda "x" $ Var "x") "y")
+       $ Let ("main", Lambda "y" $ Apply (CC "main" Right $ Lambda "x" $ 
+                      (Apply (Apply (Var "app") "f") "x")) "y")
+       $ Let ("k", Const Right)
+       $ Apply (Var "main") "k"
